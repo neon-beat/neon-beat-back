@@ -1,0 +1,28 @@
+services:
+  mongo:
+    image: mongo:7.0
+    restart: unless-stopped
+    environment:
+      MONGO_URI: &mongo_uri mongodb://mongo:27017
+      MONGO_DB: &mongo_db neon_beat
+    volumes:
+      - mongo-data:/data/db
+
+  app:
+    build:
+      context: .
+      args:
+        BUILD_TARGET: ${BUILD_TARGET:-}
+    environment:
+      MONGO_URI: *mongo_uri
+      MONGO_DB: *mongo_db
+      PORT: "8080"
+      RUST_LOG: info
+    depends_on:
+      - mongo
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  mongo-data:
