@@ -16,7 +16,7 @@ use crate::{
 pub fn router() -> Router<SharedState> {
     Router::new()
         .route("/games", post(create_game))
-        .route("/games/:id/load", post(load_game))
+        .route("/games/{id}/load", post(load_game))
 }
 
 /// Create a fresh game definition and persist it.
