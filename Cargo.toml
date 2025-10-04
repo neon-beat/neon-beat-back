@@ -13,7 +13,7 @@ futures = "0.3"
 thiserror = "2.0"
 dashmap = "6.1"
 mongodb = { version = "3.3", default-features = false, features = ["rustls-tls", "bson-3", "compat-3-3-0"] }
-uuid = { version = "1.18", features = ["v4"] }
+uuid = { version = "1.18", features = ["v4", "serde"] }
 utoipa = { version = "5.4", features = ["axum_extras", "uuid"] }
 utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
 tower-http = { version = "0.6", features = ["trace", "cors"] }
@@ -21,6 +21,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
 async-stream = "0.3"
+rand = "0.9"
 
 [lints.rust]
 missing_docs = "warn"

@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app_state = AppState::new(mongo_manager);
     // Build the HTTP router once the shared state is ready.
-    let app = build_router(app_state.clone());
+    let app = build_router(app_state);
 
     let port = env::var("PORT")
         .or_else(|_| env::var("SERVER_PORT"))

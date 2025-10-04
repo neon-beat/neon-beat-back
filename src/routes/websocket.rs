@@ -17,8 +17,7 @@ pub async fn ws_handler(
     State(state): State<SharedState>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    let shared_state = state.clone();
-    ws.on_upgrade(move |socket| websocket_service::handle_socket(shared_state.clone(), socket))
+    ws.on_upgrade(move |socket| websocket_service::handle_socket(state, socket))
 }
 
 /// Configure the WebSocket endpoint.

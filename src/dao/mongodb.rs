@@ -1,4 +1,9 @@
-use mongodb::{Client, Database, bson::doc, error::Error as MongoError, options::ClientOptions};
+use mongodb::{
+    Client, Database,
+    bson::doc,
+    error::Error as MongoError,
+    options::{ClientOptions, IndexOptions},
+};
 use std::{sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::{
@@ -6,6 +11,7 @@ use tokio::{
     time::{MissedTickBehavior, interval, sleep},
 };
 use tracing::{error, info, warn};
+use uuid::Uuid;
 
 const DEFAULT_DB: &str = "neon_beat";
 const MAX_CONNECT_ATTEMPTS: u32 = 10;
@@ -62,6 +68,30 @@ pub enum MongoDaoError {
         #[source]
         source: MongoError,
     },
+    #[error("failed to save game `{id}`")]
+    SaveGame {
+        id: Uuid,
+        #[source]
+        source: MongoError,
+    },
+    #[error("failed to save playlist `{id}`")]
+    SavePlaylist {
+        id: Uuid,
+        #[source]
+        source: MongoError,
+    },
+    #[error("failed to load game `{id}`")]
+    LoadGame {
+        id: Uuid,
+        #[source]
+        source: MongoError,
+    },
+    #[error("failed to load playlist `{id}`")]
+    LoadPlaylist {
+        id: Uuid,
+        #[source]
+        source: MongoError,
+    },
 }
 
 /// Connect to MongoDB and start a watcher that keeps the connection healthy.
@@ -91,16 +121,21 @@ pub async fn connect(uri: &str, db_name: Option<&str>) -> Result<MongoManager> {
 
 /// Ensure the indexes required by the application are present.
 pub async fn ensure_indexes(database: &Database) -> Result<()> {
-    let collection = database.collection::<mongodb::bson::Document>("game_state");
+    let collection = database.collection::<mongodb::bson::Document>("games");
     let model = mongodb::IndexModel::builder()
-        .keys(mongodb::bson::doc! {"quiz_name": 1})
+        .keys(doc! {"name": 1})
+        .options(
+            IndexOptions::builder()
+                .name(Some("game_name_idx".to_string()))
+                .build(),
+        )
         .build();
     collection
         .create_index(model)
         .await
         .map_err(|source| MongoDaoError::EnsureIndex {
-            collection: "game_state",
-            index: "quiz_name",
+            collection: "games",
+            index: "name",
             source,
         })?;
     Ok(())
@@ -194,8 +229,7 @@ async fn establish_connection(
     options: &ClientOptions,
     database_name: &str,
 ) -> Result<(Client, Database)> {
-    let options = options.clone();
-    let client = Client::with_options(options)
+    let client = Client::with_options(options.clone())
         .map_err(|source| MongoDaoError::ClientConstruction { source })?;
     let database = client.database(database_name);
 
@@ -208,7 +242,7 @@ async fn establish_connection(
                 if attempt > 1 {
                     info!(attempt, "connected to MongoDB after retry");
                 }
-                return Ok((client.clone(), database.clone()));
+                return Ok((client, database));
             }
             Err(err) if attempt < MAX_CONNECT_ATTEMPTS => {
                 let backoff_multiplier = 1u64 << (attempt.saturating_sub(1).min(4));

@@ -8,6 +8,8 @@ use utoipa::OpenApi;
         crate::routes::sse::public_stream,
         crate::routes::sse::admin_stream,
         crate::routes::websocket::ws_handler,
+        crate::routes::game::create_game,
+        crate::routes::game::load_game,
     ),
     components(
         schemas(
@@ -15,13 +17,22 @@ use utoipa::OpenApi;
             crate::dto::ws::BuzzerInboundMessage,
             crate::dto::ws::BuzzerAck,
             crate::dto::sse::AdminHandshake,
-            crate::dao::models::GameState,
+            crate::dto::game::CreateGameRequest,
+            crate::dto::game::PlayerInput,
+            crate::dto::game::PlaylistInput,
+            crate::dto::game::SongInput,
+            crate::dto::game::PlayerSummary,
+            crate::dto::game::GameSummary,
+            crate::dto::game::PlaylistSummary,
+            crate::dto::game::SongSummary,
+            crate::dto::game::PointFieldSummary,
         )
     ),
     tags(
         (name = "health", description = "Health check endpoints"),
         (name = "sse", description = "Server-sent events streams"),
         (name = "buzzers", description = "WebSocket operations for buzzer devices"),
+        (name = "game", description = "Game bootstrap operations"),
     )
 )]
 pub struct ApiDoc;

@@ -10,6 +10,12 @@ pub enum ServiceError {
     Unavailable(#[source] MongoDaoError),
     #[error("unauthorized: {0}")]
     Unauthorized(String),
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
+    #[error("invalid state: {0}")]
+    InvalidState(String),
+    #[error("not found: {0}")]
+    NotFound(String),
 }
 
 impl From<MongoDaoError> for ServiceError {
@@ -19,7 +25,11 @@ impl From<MongoDaoError> for ServiceError {
             | MongoDaoError::ClientConstruction { .. }
             | MongoDaoError::InvalidUri { .. }
             | MongoDaoError::InitialPing { .. }
-            | MongoDaoError::HealthPing { .. } => ServiceError::Unavailable(err),
+            | MongoDaoError::HealthPing { .. }
+            | MongoDaoError::SaveGame { .. }
+            | MongoDaoError::SavePlaylist { .. }
+            | MongoDaoError::LoadGame { .. }
+            | MongoDaoError::LoadPlaylist { .. } => ServiceError::Unavailable(err),
         }
     }
 }
@@ -30,6 +40,10 @@ pub enum AppError {
     BadRequest(String),
     #[error("unauthorized: {0}")]
     Unauthorized(String),
+    #[error("not found: {0}")]
+    NotFound(String),
+    #[error("conflict: {0}")]
+    Conflict(String),
     #[error("service unavailable: {0}")]
     ServiceUnavailable(String),
     #[error("internal error: {0}")]
@@ -41,6 +55,9 @@ impl From<ServiceError> for AppError {
         match err {
             ServiceError::Unavailable(source) => AppError::ServiceUnavailable(source.to_string()),
             ServiceError::Unauthorized(message) => AppError::Unauthorized(message),
+            ServiceError::InvalidInput(message) => AppError::BadRequest(message),
+            ServiceError::InvalidState(message) => AppError::Conflict(message),
+            ServiceError::NotFound(message) => AppError::NotFound(message),
         }
     }
 }
@@ -55,6 +72,8 @@ impl IntoResponse for AppError {
         let status = match &self {
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
             AppError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
+            AppError::NotFound(_) => StatusCode::NOT_FOUND,
+            AppError::Conflict(_) => StatusCode::CONFLICT,
             AppError::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };

@@ -39,7 +39,7 @@ pub async fn admin_stream(
     sse_service::broadcast_admin_handshake(state.admin_sse(), &token);
     Ok(sse_service::to_sse_stream(
         receiver,
-        StreamKind::Admin(state.clone()),
+        StreamKind::Admin(state),
     ))
 }
 

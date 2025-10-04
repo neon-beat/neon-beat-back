@@ -1,17 +1,18 @@
+pub mod game;
 mod sse;
+pub mod state_machine;
 
 use std::sync::Arc;
 
 use axum::extract::ws::Message;
 use dashmap::DashMap;
 use mongodb::Database;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, RwLock, mpsc};
 
-use crate::dao::mongodb::MongoManager;
-
-use self::sse::SseState;
+use crate::{dao::mongodb::MongoManager, state::game::GameSession};
 
 pub use self::sse::SseHub;
+use self::{sse::SseState, state_machine::GameStateMachine};
 
 pub type SharedState = Arc<AppState>;
 
@@ -27,6 +28,8 @@ pub struct AppState {
     mongo: MongoManager,
     sse: SseState,
     buzzers: DashMap<String, BuzzerConnection>,
+    game: RwLock<GameStateMachine>,
+    current_game: RwLock<Option<GameSession>>,
 }
 
 impl AppState {
@@ -36,6 +39,8 @@ impl AppState {
             mongo,
             sse: SseState::new(16, 16),
             buzzers: DashMap::new(),
+            game: RwLock::new(GameStateMachine::new()),
+            current_game: RwLock::new(None),
         })
     }
 
@@ -67,5 +72,15 @@ impl AppState {
     /// Registry of active buzzer sockets keyed by their identifier.
     pub fn buzzers(&self) -> &DashMap<String, BuzzerConnection> {
         &self.buzzers
+    }
+
+    /// Shared game state machine guarding gameplay transitions.
+    pub fn game(&self) -> &RwLock<GameStateMachine> {
+        &self.game
+    }
+
+    /// Currently active game session data.
+    pub fn current_game(&self) -> &RwLock<Option<GameSession>> {
+        &self.current_game
     }
 }
