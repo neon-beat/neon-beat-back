@@ -13,7 +13,7 @@ pub async fn health_status(state: &SharedState) -> HealthResponse {
         None => warn!("mongodb unavailable (degraded mode)"),
     }
 
-    if state.is_degraded() {
+    if state.is_degraded().await {
         HealthResponse::degraded()
     } else {
         HealthResponse::ok()

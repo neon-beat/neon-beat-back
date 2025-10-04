@@ -192,9 +192,12 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [ ] Implement buzzer feedback
 - [ ] Remove useless features of dependencies if found
 - [ ] Allow to switch buzzer_id for a player
+- [ ] Update `mongo` value of `AppState ` to None (and send False to `degraded` watcher) each time a mongo function returns a connection error
 - [ ] Implement tests
 
 ## Questions
 
 - Do we want to manage public SSE deconnexion ? No
 - Do we want to modify a playlist when it is already imported in the backend ? No, we import again
+
+TODO: Manage MongoDB disconnection for mongo function errors

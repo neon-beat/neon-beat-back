@@ -22,7 +22,7 @@ pub async fn public_stream(
     let receiver = sse_service::subscribe_public(&state);
     let degraded_rx = state.degraded_watcher();
     info!("New public SSE connection");
-    sse_service::broadcast_public_handshake(state.public_sse(), state.is_degraded());
+    sse_service::broadcast_public_handshake(state.public_sse(), state.is_degraded().await);
     sse_service::to_sse_stream(receiver, StreamKind::Public, degraded_rx)
 }
 
@@ -38,7 +38,7 @@ pub async fn admin_stream(
     let (receiver, token) = sse_service::subscribe_admin(&state).await?;
     let degraded_rx = state.degraded_watcher();
     info!("New admin SSE connection");
-    sse_service::broadcast_admin_handshake(state.admin_sse(), &token, state.is_degraded());
+    sse_service::broadcast_admin_handshake(state.admin_sse(), &token, state.is_degraded().await);
     Ok(sse_service::to_sse_stream(
         receiver,
         StreamKind::Admin(state),

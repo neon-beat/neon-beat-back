@@ -61,7 +61,7 @@ impl AppState {
             let mut guard = self.mongo.write().await;
             *guard = Some(manager);
         }
-        self.update_degraded(false);
+        self.update_degraded(false).await;
     }
 
     /// Remove the MongoDB manager and enter degraded mode.
@@ -70,12 +70,13 @@ impl AppState {
             let mut guard = self.mongo.write().await;
             guard.take();
         }
-        self.update_degraded(true);
+        self.update_degraded(true).await;
     }
 
     /// Current degraded flag.
-    pub fn is_degraded(&self) -> bool {
-        *self.degraded.borrow()
+    pub async fn is_degraded(&self) -> bool {
+        let guard = self.mongo.read().await;
+        guard.is_none()
     }
 
     /// Subscribe to degraded mode updates.
@@ -114,8 +115,8 @@ impl AppState {
     }
 
     /// Update and broadcast the degraded flag when the value changes.
-    fn update_degraded(&self, value: bool) {
-        if self.is_degraded() == value {
+    async fn update_degraded(&self, value: bool) {
+        if self.is_degraded().await == value {
             return;
         }
 
