@@ -8,6 +8,8 @@ use crate::dao::mongodb::MongoDaoError;
 pub enum ServiceError {
     #[error("storage unavailable")]
     Unavailable(#[source] MongoDaoError),
+    #[error("storage unavailable (degraded mode)")]
+    Degraded,
     #[error("unauthorized: {0}")]
     Unauthorized(String),
     #[error("invalid input: {0}")]
@@ -54,6 +56,7 @@ impl From<ServiceError> for AppError {
     fn from(err: ServiceError) -> Self {
         match err {
             ServiceError::Unavailable(source) => AppError::ServiceUnavailable(source.to_string()),
+            ServiceError::Degraded => AppError::ServiceUnavailable("degraded mode".into()),
             ServiceError::Unauthorized(message) => AppError::Unauthorized(message),
             ServiceError::InvalidInput(message) => AppError::BadRequest(message),
             ServiceError::InvalidState(message) => AppError::Conflict(message),

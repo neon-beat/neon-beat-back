@@ -4,9 +4,18 @@ use crate::{dto::health::HealthResponse, state::SharedState};
 
 /// Respond with a static health payload while logging connectivity issues.
 pub async fn health_status(state: &SharedState) -> HealthResponse {
-    if let Err(err) = state.mongo().ping().await {
-        warn!(error = %err, "mongodb ping failed");
+    match state.mongo().await {
+        Some(mongo) => {
+            if let Err(err) = mongo.ping().await {
+                warn!(error = %err, "mongodb ping failed");
+            }
+        }
+        None => warn!("mongodb unavailable (degraded mode)"),
     }
 
-    HealthResponse::ok()
+    if state.is_degraded() {
+        HealthResponse::degraded()
+    } else {
+        HealthResponse::ok()
+    }
 }

@@ -1,6 +1,6 @@
 use dashmap::DashMap;
 use mongodb::bson::DateTime;
-use rand::{seq::SliceRandom, thread_rng};
+use rand::{rng, seq::SliceRandom};
 use uuid::Uuid;
 
 use crate::dao::models::{GameEntity, PlayerEntity, PlaylistEntity, PointFieldEntity, SongEntity};
@@ -87,7 +87,7 @@ impl GameSession {
             playlist.songs.iter().map(|entry| *entry.key()).collect();
 
         if playlist_song_order.len() > 1 {
-            let mut rng = thread_rng();
+            let mut rng = rng();
             playlist_song_order.shuffle(&mut rng);
         }
 

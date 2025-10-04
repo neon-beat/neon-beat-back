@@ -13,4 +13,10 @@ impl HealthResponse {
             status: "ok".to_string(),
         }
     }
+
+    pub fn degraded() -> Self {
+        Self {
+            status: "degraded".to_string(),
+        }
+    }
 }

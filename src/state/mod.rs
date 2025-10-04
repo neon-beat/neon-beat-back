@@ -6,8 +6,7 @@ use std::sync::Arc;
 
 use axum::extract::ws::Message;
 use dashmap::DashMap;
-use mongodb::Database;
-use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::sync::{Mutex, RwLock, mpsc, watch};
 
 use crate::{dao::mongodb::MongoManager, state::game::GameSession};
 
@@ -25,33 +24,63 @@ pub struct BuzzerConnection {
 
 /// Central application state storing persistent connections and database handles.
 pub struct AppState {
-    mongo: MongoManager,
+    mongo: RwLock<Option<MongoManager>>,
     sse: SseState,
     buzzers: DashMap<String, BuzzerConnection>,
     game: RwLock<GameStateMachine>,
     current_game: RwLock<Option<GameSession>>,
+    degraded: watch::Sender<bool>,
 }
 
 impl AppState {
     /// Construct a new [`AppState`] wrapped in an [`Arc`] so it can be cloned cheaply.
-    pub fn new(mongo: MongoManager) -> SharedState {
+    ///
+    /// The application starts in degraded mode until the MongoDB supervisor
+    /// establishes a connection and installs a [`MongoManager`].
+    pub fn new() -> SharedState {
+        let (degraded_tx, _rx) = watch::channel(true);
         Arc::new(Self {
-            mongo,
+            mongo: RwLock::new(None),
             sse: SseState::new(16, 16),
             buzzers: DashMap::new(),
             game: RwLock::new(GameStateMachine::new()),
             current_game: RwLock::new(None),
+            degraded: degraded_tx,
         })
     }
 
-    /// Clone the MongoDB database handle for DAO layers.
-    pub async fn database(&self) -> Database {
-        self.mongo.database().await
+    /// Obtain a cloned MongoDB manager, if a connection is currently available.
+    pub async fn mongo(&self) -> Option<MongoManager> {
+        let guard = self.mongo.read().await;
+        guard.clone()
     }
 
-    /// Accessor for the MongoDB manager.
-    pub fn mongo(&self) -> MongoManager {
-        self.mongo.clone()
+    /// Replace the MongoDB manager and leave degraded mode.
+    pub async fn install_mongo(&self, manager: MongoManager) {
+        {
+            let mut guard = self.mongo.write().await;
+            *guard = Some(manager);
+        }
+        self.update_degraded(false);
+    }
+
+    /// Remove the MongoDB manager and enter degraded mode.
+    pub async fn clear_mongo(&self) {
+        {
+            let mut guard = self.mongo.write().await;
+            guard.take();
+        }
+        self.update_degraded(true);
+    }
+
+    /// Current degraded flag.
+    pub fn is_degraded(&self) -> bool {
+        *self.degraded.borrow()
+    }
+
+    /// Subscribe to degraded mode updates.
+    pub fn degraded_watcher(&self) -> watch::Receiver<bool> {
+        self.degraded.subscribe()
     }
 
     /// Broadcast hub used for the public SSE stream.
@@ -82,5 +111,14 @@ impl AppState {
     /// Currently active game session data.
     pub fn current_game(&self) -> &RwLock<Option<GameSession>> {
         &self.current_game
+    }
+
+    /// Update and broadcast the degraded flag when the value changes.
+    fn update_degraded(&self, value: bool) {
+        if self.is_degraded() == value {
+            return;
+        }
+
+        let _ = self.degraded.send(value);
     }
 }

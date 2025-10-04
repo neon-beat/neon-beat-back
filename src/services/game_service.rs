@@ -27,7 +27,10 @@ pub async fn create_game(
 
     let game = build_game_session(request)?;
 
-    let repository = GameRepository::new(state.mongo());
+    let Some(mongo) = state.mongo().await else {
+        return Err(ServiceError::Degraded);
+    };
+    let repository = GameRepository::new(mongo);
     repository.save(game.clone().into()).await?;
 
     {
@@ -42,7 +45,10 @@ pub async fn create_game(
 pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, ServiceError> {
     ensure_idle(state).await?;
 
-    let repository = GameRepository::new(state.mongo());
+    let Some(mongo) = state.mongo().await else {
+        return Err(ServiceError::Degraded);
+    };
+    let repository = GameRepository::new(mongo);
     let Some(game) = repository.find(id).await? else {
         return Err(ServiceError::NotFound(format!("game `{id}` not found")));
     };

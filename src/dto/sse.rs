@@ -9,6 +9,7 @@ pub struct ServerEvent {
 }
 
 impl ServerEvent {
+    /// Build a raw SSE event with pre-serialised content.
     pub fn new<E, D>(event: E, data: D) -> Self
     where
         E: Into<Option<String>>,
@@ -20,6 +21,7 @@ impl ServerEvent {
         }
     }
 
+    /// Convenience wrapper that serialises `payload` into the SSE data field.
     pub fn json<E, T>(event: E, payload: &T) -> serde_json::Result<Self>
     where
         E: Into<Option<String>>,
@@ -33,7 +35,21 @@ impl ServerEvent {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
-/// Token payload broadcast to newly connected admins.
-pub struct AdminHandshake {
-    pub token: String,
+/// Initial metadata sent to an SSE client when it connects.
+pub struct Handshake {
+    /// Identifier of the SSE stream (`public` or `admin`).
+    pub stream: String,
+    /// Human-readable message confirming the subscription.
+    pub message: String,
+    /// Whether the backend is running without a MongoDB connection.
+    pub degraded: bool,
+    /// Optional admin token returned when the stream is privileged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+/// Broadcast when the backend enters or leaves degraded mode.
+pub struct SystemStatus {
+    pub degraded: bool,
 }

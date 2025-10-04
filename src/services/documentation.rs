@@ -16,7 +16,6 @@ use utoipa::OpenApi;
             crate::dto::health::HealthResponse,
             crate::dto::ws::BuzzerInboundMessage,
             crate::dto::ws::BuzzerAck,
-            crate::dto::sse::AdminHandshake,
             crate::dto::game::CreateGameRequest,
             crate::dto::game::PlayerInput,
             crate::dto::game::PlaylistInput,
@@ -26,6 +25,8 @@ use utoipa::OpenApi;
             crate::dto::game::PlaylistSummary,
             crate::dto::game::SongSummary,
             crate::dto::game::PointFieldSummary,
+            crate::dto::sse::SystemStatus,
+            crate::dto::sse::Handshake,
         )
     ),
     tags(

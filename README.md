@@ -182,7 +182,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [ ] Validate the WebSocket connection
 - [ ] Validate the SSE connection
 - [ ] Validate the MongoDB connection
-- [ ] Do not block start of app if connexion to MongoDB fails (Authorize "degraded mode" → info to send by SSE)
+- [x] Do not block start of app if connexion to MongoDB fails (Authorize "degraded mode" → info to send by SSE)
 - [x] Implement Game State Machine
 - [ ] Use Game State Machine
 - [x] Implement Game & Playlist State save in DB (only found songs, not every answered field)
@@ -192,6 +192,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [ ] Implement buzzer feedback
 - [ ] Remove useless features of dependencies if found
 - [ ] Allow to switch buzzer_id for a player
+- [ ] Implement tests
 
 ## Questions
 

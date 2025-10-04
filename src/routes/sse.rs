@@ -20,9 +20,10 @@ pub async fn public_stream(
     State(state): State<SharedState>,
 ) -> Sse<impl Stream<Item = Result<axum::response::sse::Event, Infallible>>> {
     let receiver = sse_service::subscribe_public(&state);
+    let degraded_rx = state.degraded_watcher();
     info!("New public SSE connection");
-    sse_service::broadcast_public_info(state.public_sse(), "public stream connected");
-    sse_service::to_sse_stream(receiver, StreamKind::Public)
+    sse_service::broadcast_public_handshake(state.public_sse(), state.is_degraded());
+    sse_service::to_sse_stream(receiver, StreamKind::Public, degraded_rx)
 }
 
 #[utoipa::path(
@@ -35,11 +36,13 @@ pub async fn admin_stream(
     State(state): State<SharedState>,
 ) -> Result<Sse<impl Stream<Item = Result<axum::response::sse::Event, Infallible>>>, AppError> {
     let (receiver, token) = sse_service::subscribe_admin(&state).await?;
+    let degraded_rx = state.degraded_watcher();
     info!("New admin SSE connection");
-    sse_service::broadcast_admin_handshake(state.admin_sse(), &token);
+    sse_service::broadcast_admin_handshake(state.admin_sse(), &token, state.is_degraded());
     Ok(sse_service::to_sse_stream(
         receiver,
         StreamKind::Admin(state),
+        degraded_rx,
     ))
 }
 

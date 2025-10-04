@@ -2,14 +2,17 @@ use std::{convert::Infallible, time::Duration};
 
 use axum::response::sse::{Event, KeepAlive, Sse};
 use futures::Stream;
-use tokio::sync::broadcast::{self, error::RecvError};
+use tokio::sync::{
+    broadcast::{self, error::RecvError},
+    watch,
+};
 use uuid::Uuid;
 
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
-    dto::sse::{AdminHandshake, ServerEvent},
+    dto::sse::{Handshake, ServerEvent, SystemStatus},
     error::ServiceError,
     state::{SharedState, SseHub},
 };
@@ -44,6 +47,7 @@ pub enum StreamKind {
 pub fn to_sse_stream(
     mut receiver: broadcast::Receiver<ServerEvent>,
     kind: StreamKind,
+    mut degraded_rx: watch::Receiver<bool>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     // small bounded channel between forwarder and response
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(8);
@@ -51,24 +55,30 @@ pub fn to_sse_stream(
     // forwarder task: reads from broadcast and pushes into mpsc
     tokio::spawn(async move {
         loop {
+            // Forward either broadcast events or degraded-mode changes to the
+            // client until the channel closes or the SSE sender drops.
             tokio::select! {
                 _ = tx.closed() => break,
                 recv_result = receiver.recv() => {
-                    match recv_result {
-                        Ok(payload) => {
-                            let mut event = Event::default().data(payload.data);
-                            if let Some(name) = payload.event {
-                                event = event.event(name);
-                            }
+                    if !forward_broadcast(recv_result, &tx).await {
+                        break;
+                    }
+                }
+                changed = degraded_rx.changed() => {
+                    match changed {
+                        Ok(_) => {
+                            let degraded_flag = {
+                                let guard = degraded_rx.borrow();
+                                *guard
+                            };
 
-                            if tx.send(Ok(event)).await.is_err() {
+                            if !forward_system_status(degraded_flag, &tx).await {
                                 break;
                             }
                         }
-                        Err(RecvError::Closed) => break,
-                        Err(RecvError::Lagged(_)) => {
-                            // Skip lagged messages but keep the stream alive.
-                            continue;
+                        Err(_) => {
+                            // sender dropped; no more updates, exit loop
+                            break;
                         }
                     }
                 }
@@ -111,24 +121,35 @@ async fn claim_admin_token(state: &SharedState) -> Result<String, ServiceError> 
     }
 }
 
-/// Broadcast a token refresh event to the admin stream.
-pub fn broadcast_admin_handshake(hub: &SseHub, token: &str) {
+/// Broadcast the initial handshake payload (including token) to a connecting
+/// admin SSE client.
+pub fn broadcast_admin_handshake(hub: &SseHub, token: &str, degraded: bool) {
     if let Ok(event) = ServerEvent::json(
-        Some("admin_token".to_string()),
-        &AdminHandshake {
-            token: token.to_string(),
+        Some("handshake".to_string()),
+        &Handshake {
+            stream: "admin".to_string(),
+            message: "admin stream connected".to_string(),
+            degraded,
+            token: Some(token.to_string()),
         },
     ) {
         hub.broadcast(event);
     }
 }
 
-/// Send a human-readable info message onto the public SSE stream.
-pub fn broadcast_public_info(hub: &SseHub, message: &str) {
-    hub.broadcast(ServerEvent::new(
-        Some("info".to_string()),
-        message.to_string(),
-    ));
+/// Broadcast the initial handshake payload to a connecting public SSE client.
+pub fn broadcast_public_handshake(hub: &SseHub, degraded: bool) {
+    if let Ok(event) = ServerEvent::json(
+        Some("handshake".to_string()),
+        &Handshake {
+            stream: "public".to_string(),
+            message: "public stream connected".to_string(),
+            degraded,
+            token: None,
+        },
+    ) {
+        hub.broadcast(event);
+    }
 }
 
 /// Clear any stored admin token so the next admin connection negotiates a
@@ -136,4 +157,48 @@ pub fn broadcast_public_info(hub: &SseHub, message: &str) {
 async fn reset_admin_token(state: SharedState) {
     let mut guard = state.admin_token().lock().await;
     guard.take();
+}
+
+/// Forward a broadcast payload to the SSE mpsc channel, handling lag and
+/// closed receivers gracefully.
+async fn forward_broadcast(
+    recv_result: Result<ServerEvent, RecvError>,
+    tx: &mpsc::Sender<Result<Event, Infallible>>,
+) -> bool {
+    match recv_result {
+        Ok(payload) => {
+            let mut event = Event::default().data(payload.data);
+            if let Some(name) = payload.event {
+                event = event.event(name);
+            }
+
+            tx.send(Ok(event)).await.is_ok()
+        }
+        Err(RecvError::Closed) => false,
+        Err(RecvError::Lagged(_)) => true,
+    }
+}
+
+/// Forward a system-status payload to the SSE mpsc channel.
+async fn forward_system_status(
+    degraded: bool,
+    tx: &mpsc::Sender<Result<Event, Infallible>>,
+) -> bool {
+    match ServerEvent::json(
+        Some("system_status".to_string()),
+        &SystemStatus { degraded },
+    ) {
+        Ok(payload) => {
+            let mut event = Event::default().data(payload.data);
+            if let Some(name) = payload.event {
+                event = event.event(name);
+            }
+
+            tx.send(Ok(event)).await.is_ok()
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "failed to serialise system status event");
+            true
+        }
+    }
 }
