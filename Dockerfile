@@ -8,7 +8,8 @@ RUN cargo install cargo-chef --locked
 WORKDIR /app
 COPY Cargo.lock Cargo.lock
 COPY Cargo.toml Cargo.toml
-COPY src/ ./src
+# Create a dummy main.rs to allow cargo chef to build the dependency graph
+RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM build-base AS builder
