@@ -1,4 +1,9 @@
-FROM rust:1.90-slim AS chef
+FROM rust:1.90-slim AS build-base
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM build-base AS chef
 RUN cargo install cargo-chef --locked
 WORKDIR /app
 COPY Cargo.lock Cargo.lock
@@ -6,7 +11,7 @@ COPY Cargo.toml Cargo.toml
 COPY src/ ./src
 RUN cargo chef prepare --recipe-path recipe.json
 
-FROM rust:1.90-slim AS builder
+FROM build-base AS builder
 ARG BUILD_TARGET=""
 RUN cargo install cargo-chef --locked
 WORKDIR /app
