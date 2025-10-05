@@ -7,6 +7,8 @@ use utoipa::ToSchema;
 pub enum BuzzerInboundMessage {
     #[serde(rename = "identification")]
     Identification { id: String },
+    #[serde(rename = "buzz")]
+    Buzz { id: String },
     #[serde(other)]
     Unknown,
 }
@@ -25,4 +27,11 @@ impl BuzzerInboundMessage {
 pub struct BuzzerAck {
     pub id: String,
     pub status: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+/// Feedback sent to a buzzer after it triggers a buzz event.
+pub struct BuzzFeedback {
+    pub id: String,
+    pub can_answer: bool,
 }

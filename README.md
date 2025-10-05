@@ -178,16 +178,11 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Implement the Swagger UI documentation
 - [x] MongoDB auto-reconnection
 - [x] Admin SSE deconnexion management
-- [ ] Validate the Rest API /healthcheck route
-- [ ] Validate the WebSocket connection
-- [ ] Validate the SSE connection
-- [ ] Validate the MongoDB connection
 - [x] Do not block start of app if connexion to MongoDB fails (Authorize "degraded mode" → info to send by SSE)
 - [x] Implement Game State Machine
-- [ ] Use Game State Machine
 - [x] Implement Game & Playlist State save in DB (only found songs, not every answered field)
 - [x] Save in memory (not in DB) found point fields and bonus point fields for the current song
-- [ ] Implement buzzer feedback: apply GameEvent::Pause(PauseKind::Buzz) ; return true if it's the team's turn to answer, else return false
+- [x] Implement buzzer feedback: apply GameEvent::Pause(PauseKind::Buzz) ; return true if it's the team's turn to answer, else return false
 - [ ] Implement SSE events:
    - [ ] game created/loaded: send teams
    - [ ] point field / bonus point field found: send the list of point field / bonus point field (name only) found
@@ -210,10 +205,16 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
    - [ ] next: OUTPUT is the next song to be found ; if playlist is not completed, apply GameEvent::NextSong, increment GameSession's current_song_index and reset the found fields for the current song ; else apply GameEvent::Finish(FinishReason::PlaylistCompleted)
    - [ ] stop: OUTPUT is the list of teams with their scores ; apply GameEvent::Finish(FinishReason::ManualStop)
    - [ ] end game: OUTPUT is "ended" message ; apply GameEvent::EndGame
+- [ ] Use Game State Machine
 - [ ] Implement public routes:
    - [ ] get teams/players
    - [ ] get song to find (& found fields)
    - [ ] get game phase
+- [ ] Validate the Rest API /healthcheck route
+- [ ] Validate the WebSocket connection
+- [ ] Validate the SSE connection
+- [ ] Validate the MongoDB connection
+- [ ] When a buzzer has the right to answer, send info to others that they don't have the right to buzz yet. When the buzzer ended its turn, send info to others that they  have the right to buzz now.
 - [ ] Allow to switch buzzer_id for a player
 - [ ] Update `mongo` value of `AppState ` to None (and send False to `degraded` watcher) each time a mongo function returns a connection error
 - [ ] Remove useless features of dependencies if found
