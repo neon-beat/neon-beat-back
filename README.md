@@ -186,13 +186,37 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Implement Game State Machine
 - [ ] Use Game State Machine
 - [x] Implement Game & Playlist State save in DB (only found songs, not every answered field)
-- [ ] Implement admin routes (pause, resume, add/remove points, mark field as found, reveal, validate/invalidate answer)
-- [ ] Implement admin routes to manage persisted playlists (DAO support available)
-- [ ] Implement public routes (teams, scores, countdown, song url)
-- [ ] Implement buzzer feedback
-- [ ] Remove useless features of dependencies if found
+- [x] Save in memory (not in DB) found point fields and bonus point fields for the current song
+- [ ] Implement buzzer feedback: apply GameEvent::Pause(PauseKind::Buzz) ; return true if it's the team's turn to answer, else return false
+- [ ] Implement SSE events:
+   - [ ] game created/loaded: send teams
+   - [ ] point field / bonus point field found: send the list of point field / bonus point field (name only) found
+   - [ ] validate/invalidate answer: send true or false
+   - [ ] add/remove points for a team: send the points to add (or remove) to a team (player id)
+   - [ ] game phase changed to new phase: playing (with next song or not), pause, reveal, scores (list of teams with their scores), idle
+- [ ] Implement admin routes:
+   - [ ] get games: OUTPUT is games IDs and names
+   - [ ] get playlists: OUTPUT is playlists IDs and names
+   - [ ] load game: INPUT is the game ID ; OUTPUT is the GameSummary and PlaylistSummary ; apply GameEvent::StartGame
+   - [ ] create game with new playlist: INPUT is CreateGameRequest ; OUTPUT is the GameSummary and PlaylistSummary ; apply GameEvent::StartGame
+   - [ ] create game with existing playlist ID: INPUT is LoadGameRequest (to create, similar to CreateGameRequest except playlist that has to be replaced by playlist_id) ; OUTPUT is the GameSummary and PlaylistSummary ; apply GameEvent::StartGame
+   - [ ] start game: OUTPUT is song to be found ; apply GameEvent::GameConfigured
+   - [ ] pause: OUTPUT is "paused" message ; apply GameEvent::Pause(PauseKind::Manual)
+   - [ ] mark field as found: OUTPUT is the list of found fields ; only possible in GamePhase::GameRunning and if GameRunningPhase is not GameRunningPhase::Prep
+   - [ ] validate/invalidate answer: OUTPUT is "answered" message ; only possible in GamePhase::GameRunning(GameRunningPhase::Paused)
+   - [ ] add/remove points for a team: OUTPUT is the new score of the team ; only possible in GamePhase::GameRunning
+   - [ ] resume: OUTPUT is "resumed" message ; apply GameEvent::ContinuePlaying
+   - [ ] reveal: OUTPUT is "revealed" message ; apply GameEvent::Reveal
+   - [ ] next: OUTPUT is the next song to be found ; if playlist is not completed, apply GameEvent::NextSong, increment GameSession's current_song_index and reset the found fields for the current song ; else apply GameEvent::Finish(FinishReason::PlaylistCompleted)
+   - [ ] stop: OUTPUT is the list of teams with their scores ; apply GameEvent::Finish(FinishReason::ManualStop)
+   - [ ] end game: OUTPUT is "ended" message ; apply GameEvent::EndGame
+- [ ] Implement public routes:
+   - [ ] get teams/players
+   - [ ] get song to find (& found fields)
+   - [ ] get game phase
 - [ ] Allow to switch buzzer_id for a player
 - [ ] Update `mongo` value of `AppState ` to None (and send False to `degraded` watcher) each time a mongo function returns a connection error
+- [ ] Remove useless features of dependencies if found
 - [ ] Implement tests
 
 ## Questions
