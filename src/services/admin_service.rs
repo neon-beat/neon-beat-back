@@ -1,3 +1,5 @@
+//! Business logic backing the admin API surface.
+
 use mongodb::bson::DateTime;
 use uuid::Uuid;
 
@@ -21,6 +23,7 @@ use crate::{
     },
 };
 
+/// Retrieve a `GameRepository` instance or surface degraded mode.
 async fn mongo_repo(state: &SharedState) -> Result<GameRepository, ServiceError> {
     let Some(mongo) = state.mongo().await else {
         return Err(ServiceError::Degraded);
@@ -28,6 +31,7 @@ async fn mongo_repo(state: &SharedState) -> Result<GameRepository, ServiceError>
     Ok(GameRepository::new(mongo))
 }
 
+/// Snapshot the in-memory game back into persistent storage.
 async fn persist_current_game(state: &SharedState) -> Result<(), ServiceError> {
     let repository = mongo_repo(state).await?;
     let snapshot = {
@@ -41,6 +45,7 @@ async fn persist_current_game(state: &SharedState) -> Result<(), ServiceError> {
     Ok(())
 }
 
+/// Guard helper requiring the game to be running before mutating state.
 async fn ensure_running_phase(state: &SharedState) -> Result<GameRunningPhase, ServiceError> {
     let phase = { state.game().read().await.phase() };
     match phase {
@@ -51,6 +56,7 @@ async fn ensure_running_phase(state: &SharedState) -> Result<GameRunningPhase, S
     }
 }
 
+/// Borrow the active game session mutably or produce an invalid-state error.
 fn unwrap_current_game_mut(
     guard: &mut Option<GameSession>,
 ) -> Result<&mut GameSession, ServiceError> {
@@ -59,6 +65,7 @@ fn unwrap_current_game_mut(
         .ok_or_else(|| ServiceError::InvalidState("no active game".into()))
 }
 
+/// Convert the requested playlist entry into a `SongSummary` payload.
 fn song_summary(game: &GameSession, index: usize) -> Result<SongSummary, ServiceError> {
     let song_id = *game
         .playlist_song_order
@@ -72,6 +79,7 @@ fn song_summary(game: &GameSession, index: usize) -> Result<SongSummary, Service
     Ok((song_id, song_entry.value().clone()).into())
 }
 
+/// Return the games persisted in MongoDB for selection in the admin UI.
 pub async fn list_games(state: &SharedState) -> Result<Vec<GameListItem>, ServiceError> {
     let repository = mongo_repo(state).await?;
     let entries = repository.list_games().await?;
@@ -84,6 +92,7 @@ pub async fn list_games(state: &SharedState) -> Result<Vec<GameListItem>, Servic
         .collect())
 }
 
+/// Return the playlists that can seed new games.
 pub async fn list_playlists(state: &SharedState) -> Result<Vec<PlaylistListItem>, ServiceError> {
     let repository = mongo_repo(state).await?;
     let entries = repository.list_playlists().await?;
@@ -96,12 +105,14 @@ pub async fn list_playlists(state: &SharedState) -> Result<Vec<PlaylistListItem>
         .collect())
 }
 
+/// Load a persisted game, apply the appropriate SSE event and return the summary.
 pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, ServiceError> {
     sse_events::apply_and_broadcast_event(state, GameEvent::StartGame).await?;
     let summary = game_service::load_game(state, id).await?;
     Ok(summary)
 }
 
+/// Create a new game definition on behalf of admins.
 pub async fn create_game(
     state: &SharedState,
     request: CreateGameRequest,
@@ -111,6 +122,7 @@ pub async fn create_game(
     Ok(summary)
 }
 
+/// Create a game from a stored playlist template.
 pub async fn create_game_from_playlist(
     state: &SharedState,
     request: CreateGameFromPlaylistRequest,
@@ -120,6 +132,7 @@ pub async fn create_game_from_playlist(
     Ok(summary)
 }
 
+/// Move the admin-controlled game into the running phase and expose the first song.
 pub async fn start_game(state: &SharedState) -> Result<StartGameResponse, ServiceError> {
     sse_events::apply_and_broadcast_event(state, GameEvent::GameConfigured).await?;
     let song = {
@@ -139,6 +152,7 @@ pub async fn start_game(state: &SharedState) -> Result<StartGameResponse, Servic
     Ok(StartGameResponse { song })
 }
 
+/// Pause gameplay manually through the admin controls.
 pub async fn pause_game(state: &SharedState) -> Result<ActionResponse, ServiceError> {
     sse_events::apply_and_broadcast_event(state, GameEvent::Pause(PauseKind::Manual)).await?;
     Ok(ActionResponse {
@@ -146,6 +160,7 @@ pub async fn pause_game(state: &SharedState) -> Result<ActionResponse, ServiceEr
     })
 }
 
+/// Resume gameplay when an admin clears a pause.
 pub async fn resume_game(state: &SharedState) -> Result<ActionResponse, ServiceError> {
     // First retrieve buzzer ID of current phase (if we are in pause by buzz)
     let buzzer_id = match state.game().read().await.phase() {
@@ -162,6 +177,7 @@ pub async fn resume_game(state: &SharedState) -> Result<ActionResponse, ServiceE
     })
 }
 
+/// Reveal the current song and conclude any outstanding buzz sequence.
 pub async fn reveal(state: &SharedState) -> Result<ActionResponse, ServiceError> {
     // First retrieve buzzer ID of current phase (if we are in pause by buzz)
     let buzzer_id = match state.game().read().await.phase() {
@@ -178,6 +194,7 @@ pub async fn reveal(state: &SharedState) -> Result<ActionResponse, ServiceError>
     })
 }
 
+/// Advance to the next song or finish the playlist when exhausted.
 pub async fn next_song(state: &SharedState) -> Result<NextSongResponse, ServiceError> {
     let next_index = {
         let guard = state.current_game().read().await;
@@ -227,6 +244,7 @@ pub async fn next_song(state: &SharedState) -> Result<NextSongResponse, ServiceE
     })
 }
 
+/// Stop the running game early, capture standings, and persist them.
 pub async fn stop_game(state: &SharedState) -> Result<StopGameResponse, ServiceError> {
     sse_events::apply_and_broadcast_event(state, GameEvent::Finish(FinishReason::ManualStop))
         .await?;
@@ -243,6 +261,7 @@ pub async fn stop_game(state: &SharedState) -> Result<StopGameResponse, ServiceE
     Ok(StopGameResponse { teams })
 }
 
+/// Clean up any remaining shared state after the game is complete.
 pub async fn end_game(state: &SharedState) -> Result<ActionResponse, ServiceError> {
     sse_events::apply_and_broadcast_event(state, GameEvent::EndGame).await?;
     {
@@ -254,6 +273,7 @@ pub async fn end_game(state: &SharedState) -> Result<ActionResponse, ServiceErro
     })
 }
 
+/// Register a discovered field and broadcast the updated state to clients.
 pub async fn mark_field_found(
     state: &SharedState,
     request: MarkFieldRequest,
@@ -315,6 +335,7 @@ pub async fn mark_field_found(
     Ok(response)
 }
 
+/// Apply answer validation decisions while the game is paused on a buzz.
 pub async fn validate_answer(
     state: &SharedState,
     request: AnswerValidationRequest,
@@ -333,6 +354,7 @@ pub async fn validate_answer(
     }
 }
 
+/// Adjust a team's score manually and propagate the change.
 pub async fn adjust_score(
     state: &SharedState,
     request: ScoreAdjustmentRequest,
@@ -360,6 +382,7 @@ pub async fn adjust_score(
     })
 }
 
+/// Validate that the requested field is part of the song definition.
 fn ensure_field_exists(fields: &[PointField], field_key: &str) -> Result<(), ServiceError> {
     if fields.iter().any(|field| field.key == field_key) {
         Ok(())

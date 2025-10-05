@@ -208,7 +208,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
    - [x] stop: OUTPUT is the list of teams with their scores ; apply GameEvent::Finish(FinishReason::ManualStop)
    - [x] end game: OUTPUT is "ended" message ; apply GameEvent::EndGame
 - [x] Use Game State Machine
-- [ ] Document the new admin endpoints (OpenAPI/utoipa)
+- [x] Document the new admin endpoints (OpenAPI/utoipa)
 - [ ] Implement a transaction system for state machine (prepare, to know if it is possible, then apply the waiting transaction when we have finished the processing)
 - [ ] Raise an error if the playlist is empty during GameSession creation/loading
 - [ ] Add middleware for admin routes (check token)
@@ -234,4 +234,5 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - Do we want to modify a playlist when it is already imported in the backend ? No, we import again
 - Do we want to add a timeout when a player has buzzed (to resume the game) ? Add an int config property (default: Infinite)
 - Do we want to prevent the previous buzzer to buzz again ? Add a bool config property (default: re-buzz authorized)
+- Do we want to serve the OpenAPI documentation as a Github Page ?
 
