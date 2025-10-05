@@ -15,7 +15,7 @@ use crate::{dao::mongodb::MongoManager, state::game::GameSession};
 pub use self::sse::SseHub;
 use self::{
     sse::SseState,
-    state_machine::{GameEvent, GamePhase, GameStateMachine, InvalidTransition},
+    state_machine::{GameEvent, GamePhase, GameStateMachine, InvalidTransition, TransitionEffect},
 };
 
 pub type SharedState = Arc<AppState>;
@@ -131,9 +131,18 @@ impl AppState {
     /// Apply an event to the shared game state machine, returning the previous and next phase.
     pub async fn apply_game_event(&self, event: GameEvent) -> Result<GamePhase, InvalidTransition> {
         let mut sm = self.game.write().await;
-        let next = sm.apply(event, &self)?;
+        let transition = sm.apply(event)?;
         drop(sm);
-        Ok(next)
+
+        for effect in transition.effects {
+            match effect {
+                TransitionEffect::NotifyBuzzerTurnEnded { buzzer_id } => {
+                    self.notify_buzzer_turn_finished(&buzzer_id);
+                }
+            }
+        }
+
+        Ok(transition.next)
     }
 
     fn notify_buzzer_turn_finished(&self, buzzer_id: &str) {

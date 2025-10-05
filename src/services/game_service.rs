@@ -10,6 +10,7 @@ use crate::{
     },
     dto::game::{CreateGameRequest, GameSummary, PlayerInput, PlaylistInput, SongInput},
     error::ServiceError,
+    services::sse_events,
     state::{
         self, SharedState,
         game::{GameSession, Player, Playlist, PointField, Song},
@@ -37,6 +38,8 @@ pub async fn create_game(
         let mut slot = state.current_game().write().await;
         *slot = Some(game.clone());
     }
+
+    sse_events::broadcast_game_teams(state, &game.players);
 
     Ok(game.into())
 }
@@ -66,6 +69,8 @@ pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, Ser
         let mut slot = state.current_game().write().await;
         *slot = Some(game_session.clone());
     }
+
+    sse_events::broadcast_game_teams(state, &game_session.players);
 
     Ok(game_session.into())
 }

@@ -53,3 +53,84 @@ pub struct Handshake {
 pub struct SystemStatus {
     pub degraded: bool,
 }
+
+#[derive(Debug, Serialize, ToSchema)]
+/// Payload carrying the list of teams when a game starts or is loaded.
+pub struct TeamsEvent {
+    pub teams: Vec<TeamSummary>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TeamSummary {
+    pub buzzer_id: String,
+    pub name: String,
+    pub score: i32,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+/// Broadcast when point or bonus fields have been marked as found.
+pub struct FieldsFoundEvent {
+    pub song_id: String,
+    pub point_fields: Vec<String>,
+    pub bonus_fields: Vec<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+/// Broadcast when an answer has been validated or invalidated.
+pub struct AnswerValidationEvent {
+    pub valid: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+/// Broadcast whenever the gameplay phase changes.
+pub struct PhaseChangedEvent {
+    pub phase: PhaseSnapshot,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub song: Option<SongSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scoreboard: Option<Vec<TeamSummary>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paused_buzzer: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PhaseSnapshot {
+    pub kind: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SongSnapshot {
+    pub id: String,
+    pub starts_at_ms: u64,
+    pub guess_duration_ms: u64,
+    pub url: String,
+    pub point_fields: Vec<PointFieldSnapshot>,
+    pub bonus_fields: Vec<PointFieldSnapshot>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PointFieldSnapshot {
+    pub key: String,
+    pub value: String,
+    pub points: i8,
+}
+
+impl From<crate::state::game::Player> for TeamSummary {
+    fn from(player: crate::state::game::Player) -> Self {
+        Self {
+            buzzer_id: player.buzzer_id,
+            name: player.name,
+            score: player.score,
+        }
+    }
+}
+
+impl From<crate::state::game::PointField> for PointFieldSnapshot {
+    fn from(field: crate::state::game::PointField) -> Self {
+        Self {
+            key: field.key,
+            value: field.value,
+            points: field.points,
+        }
+    }
+}

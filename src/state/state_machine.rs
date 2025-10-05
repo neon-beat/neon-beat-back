@@ -1,7 +1,5 @@
 use thiserror::Error;
 
-use crate::state::AppState;
-
 /// High-level phases the game can be in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GamePhase {
@@ -73,6 +71,19 @@ pub struct InvalidTransition {
     pub event: GameEvent,
 }
 
+/// Side-effects the caller needs to perform after a successful transition.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TransitionEffect {
+    NotifyBuzzerTurnEnded { buzzer_id: String },
+}
+
+/// Result of applying a valid transition on the state machine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StateTransition {
+    pub next: GamePhase,
+    pub effects: Vec<TransitionEffect>,
+}
+
 /// State machine implementing the gameplay flow described in the README.
 #[derive(Debug, Clone)]
 pub struct GameStateMachine {
@@ -106,51 +117,50 @@ impl GameStateMachine {
     }
 
     /// Apply an event and update the underlying phase if the transition is valid.
-    pub fn apply(
-        &mut self,
-        event: GameEvent,
-        state: &AppState,
-    ) -> Result<GamePhase, InvalidTransition> {
-        let next = match (self.phase.clone(), event) {
+    pub fn apply(&mut self, event: GameEvent) -> Result<StateTransition, InvalidTransition> {
+        let (next, effects) = match (self.phase.clone(), event) {
             (GamePhase::Idle, GameEvent::StartGame) => {
-                GamePhase::GameRunning(GameRunningPhase::Prep)
+                (GamePhase::GameRunning(GameRunningPhase::Prep), Vec::new())
             }
-            (GamePhase::GameRunning(GameRunningPhase::Prep), GameEvent::GameConfigured) => {
-                GamePhase::GameRunning(GameRunningPhase::Playing)
-            }
-            (GamePhase::GameRunning(GameRunningPhase::Playing), GameEvent::Pause(kind)) => {
-                GamePhase::GameRunning(GameRunningPhase::Paused(kind))
-            }
+            (GamePhase::GameRunning(GameRunningPhase::Prep), GameEvent::GameConfigured) => (
+                GamePhase::GameRunning(GameRunningPhase::Playing),
+                Vec::new(),
+            ),
+            (GamePhase::GameRunning(GameRunningPhase::Playing), GameEvent::Pause(kind)) => (
+                GamePhase::GameRunning(GameRunningPhase::Paused(kind)),
+                Vec::new(),
+            ),
             (GamePhase::GameRunning(GameRunningPhase::Playing), GameEvent::Reveal) => {
-                GamePhase::GameRunning(GameRunningPhase::Reveal)
+                (GamePhase::GameRunning(GameRunningPhase::Reveal), Vec::new())
             }
             (
                 GamePhase::GameRunning(GameRunningPhase::Paused(kind)),
                 GameEvent::ContinuePlaying,
             ) => {
-                match kind {
-                    PauseKind::Manual => {} // TODO
-                    PauseKind::Buzz { id } => state.notify_buzzer_turn_finished(&id),
-                };
-                GamePhase::GameRunning(GameRunningPhase::Playing)
+                let mut effects = Vec::new();
+                if let PauseKind::Buzz { id } = kind {
+                    effects.push(TransitionEffect::NotifyBuzzerTurnEnded { buzzer_id: id });
+                }
+                (GamePhase::GameRunning(GameRunningPhase::Playing), effects)
             }
             (GamePhase::GameRunning(GameRunningPhase::Paused(kind)), GameEvent::Reveal) => {
-                match kind {
-                    PauseKind::Manual => {} // TODO
-                    PauseKind::Buzz { id } => state.notify_buzzer_turn_finished(&id),
-                };
-                GamePhase::GameRunning(GameRunningPhase::Reveal)
+                let mut effects = Vec::new();
+                if let PauseKind::Buzz { id } = kind {
+                    effects.push(TransitionEffect::NotifyBuzzerTurnEnded { buzzer_id: id });
+                }
+                (GamePhase::GameRunning(GameRunningPhase::Reveal), effects)
             }
-            (GamePhase::GameRunning(GameRunningPhase::Reveal), GameEvent::NextSong) => {
-                GamePhase::GameRunning(GameRunningPhase::Playing)
-            }
+            (GamePhase::GameRunning(GameRunningPhase::Reveal), GameEvent::NextSong) => (
+                GamePhase::GameRunning(GameRunningPhase::Playing),
+                Vec::new(),
+            ),
             (GamePhase::GameRunning(_), GameEvent::Finish(reason)) => {
                 self.last_finish_reason = Some(reason);
-                GamePhase::ShowScores
+                (GamePhase::ShowScores, Vec::new())
             }
             (GamePhase::ShowScores, GameEvent::EndGame) => {
                 self.last_finish_reason = None;
-                GamePhase::Idle
+                (GamePhase::Idle, Vec::new())
             }
             (from, event) => {
                 return Err(InvalidTransition { from, event });
@@ -158,7 +168,7 @@ impl GameStateMachine {
         };
 
         self.phase = next.clone();
-        Ok(next)
+        Ok(StateTransition { next, effects })
     }
 }
 
@@ -176,78 +186,67 @@ mod tests {
     #[test]
     fn full_happy_path_through_game() {
         let mut sm = GameStateMachine::new();
-        let app_state = AppState::new();
 
         assert_eq!(
-            sm.apply(GameEvent::StartGame, &app_state).unwrap(),
+            sm.apply(GameEvent::StartGame).unwrap().next,
             GamePhase::GameRunning(GameRunningPhase::Prep)
         );
         assert_eq!(
-            sm.apply(GameEvent::GameConfigured, &app_state).unwrap(),
+            sm.apply(GameEvent::GameConfigured).unwrap().next,
             GamePhase::GameRunning(GameRunningPhase::Playing)
         );
         assert_eq!(
-            sm.apply(GameEvent::Pause(PauseKind::Manual), &app_state)
-                .unwrap(),
+            sm.apply(GameEvent::Pause(PauseKind::Manual)).unwrap().next,
             GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Manual))
         );
         assert_eq!(
-            sm.apply(GameEvent::Reveal, &app_state).unwrap(),
+            sm.apply(GameEvent::Reveal).unwrap().next,
             GamePhase::GameRunning(GameRunningPhase::Reveal)
         );
         assert_eq!(
-            sm.apply(GameEvent::NextSong, &app_state).unwrap(),
+            sm.apply(GameEvent::NextSong).unwrap().next,
             GamePhase::GameRunning(GameRunningPhase::Playing)
         );
         assert_eq!(
-            sm.apply(
-                GameEvent::Finish(FinishReason::PlaylistCompleted),
-                &app_state
-            )
-            .unwrap(),
+            sm.apply(GameEvent::Finish(FinishReason::PlaylistCompleted))
+                .unwrap()
+                .next,
             GamePhase::ShowScores
         );
         assert_eq!(
             sm.last_finish_reason(),
             Some(FinishReason::PlaylistCompleted)
         );
-        assert_eq!(
-            sm.apply(GameEvent::EndGame, &app_state).unwrap(),
-            GamePhase::Idle
-        );
+        assert_eq!(sm.apply(GameEvent::EndGame).unwrap().next, GamePhase::Idle);
         assert_eq!(sm.last_finish_reason(), None);
     }
 
     #[test]
     fn buzzing_causes_pause() {
         let mut sm = GameStateMachine::new();
-        let app_state = AppState::new();
-        sm.apply(GameEvent::StartGame, &app_state).unwrap();
-        sm.apply(GameEvent::GameConfigured, &app_state).unwrap();
+        sm.apply(GameEvent::StartGame).unwrap();
+        sm.apply(GameEvent::GameConfigured).unwrap();
 
         let buzzer_id = "deadbeef0001";
-        let phase = sm
-            .apply(
-                GameEvent::Pause(PauseKind::Buzz {
-                    id: buzzer_id.to_string(),
-                }),
-                &app_state,
-            )
+        let transition = sm
+            .apply(GameEvent::Pause(PauseKind::Buzz {
+                id: buzzer_id.to_string(),
+            }))
             .unwrap();
 
-        match phase {
+        match transition.next {
             GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { id })) => {
                 assert_eq!(id, buzzer_id);
             }
             other => panic!("expected pause with buzz id, got {other:?}"),
         }
+        assert!(transition.effects.is_empty());
     }
 
     #[test]
     fn invalid_transition_returns_error() {
         let mut sm = GameStateMachine::new();
-        let app_state = AppState::new();
-        let err = sm.apply(GameEvent::Reveal, &app_state).unwrap_err();
+        let err = sm.apply(GameEvent::Reveal).unwrap_err();
         assert_eq!(err.from, GamePhase::Idle);
         assert_eq!(err.event, GameEvent::Reveal);
     }
@@ -255,13 +254,10 @@ mod tests {
     #[test]
     fn resume_requires_pause() {
         let mut sm = GameStateMachine::new();
-        let app_state = AppState::new();
-        sm.apply(GameEvent::StartGame, &app_state).unwrap();
-        sm.apply(GameEvent::GameConfigured, &app_state).unwrap();
+        sm.apply(GameEvent::StartGame).unwrap();
+        sm.apply(GameEvent::GameConfigured).unwrap();
 
-        let err = sm
-            .apply(GameEvent::ContinuePlaying, &app_state)
-            .unwrap_err();
+        let err = sm.apply(GameEvent::ContinuePlaying).unwrap_err();
         assert_eq!(err.from, GamePhase::GameRunning(GameRunningPhase::Playing));
         assert_eq!(err.event, GameEvent::ContinuePlaying);
     }
@@ -269,17 +265,62 @@ mod tests {
     #[test]
     fn finish_allowed_from_pause_state() {
         let mut sm = GameStateMachine::new();
-        let app_state = AppState::new();
-        sm.apply(GameEvent::StartGame, &app_state).unwrap();
-        sm.apply(GameEvent::GameConfigured, &app_state).unwrap();
-        sm.apply(GameEvent::Pause(PauseKind::Manual), &app_state)
-            .unwrap();
+        sm.apply(GameEvent::StartGame).unwrap();
+        sm.apply(GameEvent::GameConfigured).unwrap();
+        sm.apply(GameEvent::Pause(PauseKind::Manual)).unwrap();
 
         assert_eq!(
-            sm.apply(GameEvent::Finish(FinishReason::ManualStop), &app_state)
-                .unwrap(),
+            sm.apply(GameEvent::Finish(FinishReason::ManualStop))
+                .unwrap()
+                .next,
             GamePhase::ShowScores
         );
         assert_eq!(sm.last_finish_reason(), Some(FinishReason::ManualStop));
+    }
+
+    #[test]
+    fn continue_playing_after_buzz_has_side_effect() {
+        let mut sm = GameStateMachine::new();
+        sm.apply(GameEvent::StartGame).unwrap();
+        sm.apply(GameEvent::GameConfigured).unwrap();
+        sm.apply(GameEvent::Pause(PauseKind::Buzz {
+            id: "deadbeef0001".into(),
+        }))
+        .unwrap();
+
+        let transition = sm.apply(GameEvent::ContinuePlaying).unwrap();
+        assert_eq!(
+            transition.effects,
+            vec![TransitionEffect::NotifyBuzzerTurnEnded {
+                buzzer_id: "deadbeef0001".into()
+            }]
+        );
+        assert_eq!(
+            transition.next,
+            GamePhase::GameRunning(GameRunningPhase::Playing)
+        );
+    }
+
+    #[test]
+    fn reveal_after_buzz_has_side_effect() {
+        let mut sm = GameStateMachine::new();
+        sm.apply(GameEvent::StartGame).unwrap();
+        sm.apply(GameEvent::GameConfigured).unwrap();
+        sm.apply(GameEvent::Pause(PauseKind::Buzz {
+            id: "deadbeef0002".into(),
+        }))
+        .unwrap();
+
+        let transition = sm.apply(GameEvent::Reveal).unwrap();
+        assert_eq!(
+            transition.effects,
+            vec![TransitionEffect::NotifyBuzzerTurnEnded {
+                buzzer_id: "deadbeef0002".into()
+            }]
+        );
+        assert_eq!(
+            transition.next,
+            GamePhase::GameRunning(GameRunningPhase::Reveal)
+        );
     }
 }

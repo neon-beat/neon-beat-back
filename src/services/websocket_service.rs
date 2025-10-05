@@ -3,7 +3,7 @@ use std::time::Duration;
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use tokio::{sync::mpsc, task::JoinHandle};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 use crate::{
     dto::ws::{BuzzFeedback, BuzzerAck, BuzzerInboundMessage},
@@ -12,6 +12,8 @@ use crate::{
         state_machine::{GameEvent, GamePhase, GameRunningPhase, PauseKind},
     },
 };
+
+use super::sse_events::apply_and_broadcast_event;
 
 const IDENT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -148,7 +150,7 @@ pub async fn handle_socket(state: SharedState, socket: WebSocket) {
 pub async fn handle_buzz(state: &SharedState, buzzer_id: &str) -> bool {
     let player_known = {
         let guard = state.current_game().read().await;
-        guard.as_ref().map_or(false, |game| {
+        guard.as_ref().is_some_and(|game| {
             game.players
                 .iter()
                 .any(|player| player.buzzer_id == buzzer_id)
@@ -160,19 +162,23 @@ pub async fn handle_buzz(state: &SharedState, buzzer_id: &str) -> bool {
         return false;
     }
 
-    match state
-        .apply_game_event(GameEvent::Pause(PauseKind::Buzz {
+    match apply_and_broadcast_event(
+        state,
+        GameEvent::Pause(PauseKind::Buzz {
             id: buzzer_id.to_string(),
-        }))
-        .await
+        }),
+    )
+    .await
     {
-        Ok(GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { .. }))) => true,
-        Ok(phase) => {
-            warn!(id = %buzzer_id, ?phase, "buzz produced unexpected phase");
-            false
-        }
+        Ok(next) => match next {
+            GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { .. })) => true,
+            phase => {
+                warn!(id = %buzzer_id, ?phase, "buzz produced unexpected phase");
+                false
+            }
+        },
         Err(err) => {
-            debug!(id = %buzzer_id, error = %err, "buzz ignored: invalid transition");
+            warn!(id = %buzzer_id, error = %err, "buzz ignored: invalid transition");
             false
         }
     }

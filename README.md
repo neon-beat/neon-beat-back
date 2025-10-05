@@ -183,12 +183,14 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Implement Game & Playlist State save in DB (only found songs, not every answered field)
 - [x] Save in memory (not in DB) found point fields and bonus point fields for the current song
 - [x] Implement buzzer feedback: apply GameEvent::Pause(PauseKind::Buzz) ; return true if it's the team's turn to answer, else return false
-- [ ] Implement SSE events:
-   - [ ] game created/loaded: send teams
-   - [ ] point field / bonus point field found: send the list of point field / bonus point field (name only) found
-   - [ ] validate/invalidate answer: send true or false
-   - [ ] add/remove points for a team: send the points to add (or remove) to a team (player id)
-   - [ ] game phase changed to new phase: playing (with next song or not), pause, reveal, scores (list of teams with their scores), idle
+- [x] Implement SSE public events:
+   - [x] game created/loaded: send teams
+   - [x] point field / bonus point field found: send the list of point field / bonus point field (name only) found
+   - [x] validate/invalidate answer: send true or false
+   - [x] add/remove points for a team: send the points to add (or remove) to a team (player id)
+   - [x] game phase changed to new phase: playing (with next song or not), pause, reveal, scores (list of teams with their scores), idle
+- [x] Implement SSE admin events:
+   - [x] game phase changed to new phase: playing (with next song or not), pause, reveal, scores (list of teams with their scores), idle
 - [ ] Implement admin routes:
    - [ ] get games: OUTPUT is games IDs and names
    - [ ] get playlists: OUTPUT is playlists IDs and names
@@ -224,5 +226,3 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 
 - Do we want to manage public SSE deconnexion ? No
 - Do we want to modify a playlist when it is already imported in the backend ? No, we import again
-
-TODO: Manage MongoDB disconnection for mongo function errors
