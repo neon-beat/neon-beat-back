@@ -2,6 +2,7 @@ use axum::Router;
 
 use crate::state::SharedState;
 
+pub mod admin;
 pub mod docs;
 pub mod game;
 pub mod health;
@@ -13,7 +14,8 @@ pub fn router(state: SharedState) -> Router<()> {
     let api_router = health::router()
         .merge(sse::router())
         .merge(websocket::router())
-        .merge(game::router());
+        .merge(game::router())
+        .merge(admin::router());
 
     let docs_router = docs::router(state.clone());
 

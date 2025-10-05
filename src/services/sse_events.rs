@@ -3,13 +3,14 @@ use tracing::warn;
 
 use crate::{
     dto::sse::{
-        AnswerValidationEvent, FieldsFoundEvent, PhaseChangedEvent, PhaseSnapshot, ServerEvent,
-        SongSnapshot, TeamSummary, TeamsEvent,
+        AnswerValidationEvent, FieldsFoundEvent, PhaseChangedEvent, PhaseSnapshot,
+        PointFieldSnapshot, ServerEvent, SongSnapshot, TeamSummary, TeamsEvent,
     },
+    error::ServiceError,
     state::{
         SharedState,
         game::{GameSession, Player},
-        state_machine::{GameEvent, GamePhase, GameRunningPhase, InvalidTransition, PauseKind},
+        state_machine::{GameEvent, GamePhase, GameRunningPhase, PauseKind},
     },
 };
 
@@ -25,6 +26,7 @@ pub fn broadcast_game_teams(state: &SharedState, teams: &[Player]) {
         teams: players_to_summaries(teams),
     };
     send_public_event(state, EVENT_GAME_TEAMS, &payload);
+    send_admin_event(state, EVENT_GAME_TEAMS, &payload);
 }
 
 /// Broadcast the list of fields found for the current song.
@@ -40,22 +42,21 @@ pub fn broadcast_fields_found(
         bonus_fields: bonus_fields.to_vec(),
     };
     send_public_event(state, EVENT_FIELDS_FOUND, &payload);
+    send_admin_event(state, EVENT_FIELDS_FOUND, &payload);
 }
 
 /// Broadcast whether the current answer has been validated or invalidated.
 pub fn broadcast_answer_validation(state: &SharedState, valid: bool) {
     let payload = AnswerValidationEvent { valid };
     send_public_event(state, EVENT_ANSWER_VALIDATION, &payload);
+    send_admin_event(state, EVENT_ANSWER_VALIDATION, &payload);
 }
 
 /// Broadcast a score adjustment for a specific team.
 pub fn broadcast_score_adjustment(state: &SharedState, team: Player) {
-    let payload = TeamSummary {
-        buzzer_id: team.buzzer_id,
-        name: team.name,
-        score: team.score,
-    };
+    let payload = TeamSummary::from(team);
     send_public_event(state, EVENT_SCORE_ADJUSTMENT, &payload);
+    send_admin_event(state, EVENT_SCORE_ADJUSTMENT, &payload);
 }
 
 /// Broadcast a gameplay phase change notification.
@@ -70,14 +71,17 @@ pub async fn broadcast_phase_changed(state: &SharedState, phase: &GamePhase) {
 pub async fn apply_and_broadcast_event(
     state: &SharedState,
     event: GameEvent,
-) -> Result<GamePhase, InvalidTransition> {
-    let next = state.apply_game_event(event).await?;
+) -> Result<GamePhase, ServiceError> {
+    let next = state
+        .apply_game_event(event)
+        .await
+        .map_err(|err| ServiceError::InvalidState(err.to_string()))?;
     broadcast_phase_changed(state, &next).await;
     Ok(next)
 }
 
 fn players_to_summaries(players: &[Player]) -> Vec<TeamSummary> {
-    players.iter().cloned().map(Into::into).collect()
+    players.iter().cloned().map(TeamSummary::from).collect()
 }
 
 fn send_public_event(state: &SharedState, event: &str, payload: &impl Serialize) {
@@ -164,7 +168,17 @@ fn current_song_snapshot(game: &GameSession) -> Option<SongSnapshot> {
         starts_at_ms: song.start_time_ms,
         guess_duration_ms: song.guess_duration_ms,
         url: song.url.clone(),
-        point_fields: song.point_fields.iter().cloned().map(Into::into).collect(),
-        bonus_fields: song.bonus_fields.iter().cloned().map(Into::into).collect(),
+        point_fields: song
+            .point_fields
+            .iter()
+            .cloned()
+            .map(PointFieldSnapshot::from)
+            .collect(),
+        bonus_fields: song
+            .bonus_fields
+            .iter()
+            .cloned()
+            .map(PointFieldSnapshot::from)
+            .collect(),
     })
 }

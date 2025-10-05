@@ -31,7 +31,9 @@ impl From<MongoDaoError> for ServiceError {
             | MongoDaoError::SaveGame { .. }
             | MongoDaoError::SavePlaylist { .. }
             | MongoDaoError::LoadGame { .. }
-            | MongoDaoError::LoadPlaylist { .. } => ServiceError::Unavailable(err),
+            | MongoDaoError::LoadPlaylist { .. }
+            | MongoDaoError::ListGames { .. }
+            | MongoDaoError::ListPlaylists { .. } => ServiceError::Unavailable(err),
         }
     }
 }

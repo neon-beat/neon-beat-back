@@ -191,23 +191,27 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
    - [x] game phase changed to new phase: playing (with next song or not), pause, reveal, scores (list of teams with their scores), idle
 - [x] Implement SSE admin events:
    - [x] game phase changed to new phase: playing (with next song or not), pause, reveal, scores (list of teams with their scores), idle
-- [ ] Implement admin routes:
-   - [ ] get games: OUTPUT is games IDs and names
-   - [ ] get playlists: OUTPUT is playlists IDs and names
-   - [ ] load game: INPUT is the game ID ; OUTPUT is the GameSummary and PlaylistSummary ; apply GameEvent::StartGame
-   - [ ] create game with new playlist: INPUT is CreateGameRequest ; OUTPUT is the GameSummary and PlaylistSummary ; apply GameEvent::StartGame
-   - [ ] create game with existing playlist ID: INPUT is LoadGameRequest (to create, similar to CreateGameRequest except playlist that has to be replaced by playlist_id) ; OUTPUT is the GameSummary and PlaylistSummary ; apply GameEvent::StartGame
-   - [ ] start game: OUTPUT is song to be found ; apply GameEvent::GameConfigured
-   - [ ] pause: OUTPUT is "paused" message ; apply GameEvent::Pause(PauseKind::Manual)
-   - [ ] mark field as found: OUTPUT is the list of found fields ; only possible in GamePhase::GameRunning and if GameRunningPhase is not GameRunningPhase::Prep
-   - [ ] validate/invalidate answer: OUTPUT is "answered" message ; only possible in GamePhase::GameRunning(GameRunningPhase::Paused)
-   - [ ] add/remove points for a team: OUTPUT is the new score of the team ; only possible in GamePhase::GameRunning
-   - [ ] resume: OUTPUT is "resumed" message ; apply GameEvent::ContinuePlaying
-   - [ ] reveal: OUTPUT is "revealed" message ; apply GameEvent::Reveal
-   - [ ] next: OUTPUT is the next song to be found ; if playlist is not completed, apply GameEvent::NextSong, increment GameSession's current_song_index and reset the found fields for the current song ; else apply GameEvent::Finish(FinishReason::PlaylistCompleted)
-   - [ ] stop: OUTPUT is the list of teams with their scores ; apply GameEvent::Finish(FinishReason::ManualStop)
-   - [ ] end game: OUTPUT is "ended" message ; apply GameEvent::EndGame
-- [ ] Use Game State Machine
+- [x] Implement admin routes:
+   - [x] get games: OUTPUT is games IDs and names
+   - [x] get playlists: OUTPUT is playlists IDs and names
+   - [x] load game: INPUT is the game ID ; OUTPUT is the GameSummary and PlaylistSummary ; apply GameEvent::StartGame
+   - [x] create game with new playlist: INPUT is CreateGameRequest ; OUTPUT is the GameSummary and PlaylistSummary ; apply GameEvent::StartGame
+   - [x] create game with existing playlist ID: INPUT is LoadGameRequest (to create, similar to CreateGameRequest except playlist that has to be replaced by playlist_id) ; OUTPUT is the GameSummary and PlaylistSummary ; apply GameEvent::StartGame
+   - [x] start game: OUTPUT is song to be found ; apply GameEvent::GameConfigured
+   - [x] pause: OUTPUT is "paused" message ; apply GameEvent::Pause(PauseKind::Manual)
+   - [x] mark field as found: OUTPUT is the list of found fields ; only possible in GamePhase::GameRunning and if GameRunningPhase is not GameRunningPhase::Prep
+   - [x] validate/invalidate answer: OUTPUT is "answered" message ; only possible in GamePhase::GameRunning(GameRunningPhase::Paused)
+   - [x] add/remove points for a team: OUTPUT is the new score of the team ; only possible in GamePhase::GameRunning
+   - [x] resume: OUTPUT is "resumed" message ; apply GameEvent::ContinuePlaying
+   - [x] reveal: OUTPUT is "revealed" message ; apply GameEvent::Reveal
+   - [x] next: OUTPUT is the next song to be found ; if playlist is not completed, apply GameEvent::NextSong, increment GameSession's current_song_index and reset the found fields for the current song ; else apply GameEvent::Finish(FinishReason::PlaylistCompleted)
+   - [x] stop: OUTPUT is the list of teams with their scores ; apply GameEvent::Finish(FinishReason::ManualStop)
+   - [x] end game: OUTPUT is "ended" message ; apply GameEvent::EndGame
+- [x] Use Game State Machine
+- [ ] Document the new admin endpoints (OpenAPI/utoipa)
+- [ ] Implement a transaction system for state machine (prepare, to know if it is possible, then apply the waiting transaction when we have finished the processing)
+- [ ] Raise an error if the playlist is empty during GameSession creation/loading
+- [ ] Add middleware for admin routes (check token)
 - [ ] Implement public routes:
    - [ ] get teams/players
    - [ ] get song to find (& found fields)
@@ -216,6 +220,8 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [ ] Validate the WebSocket connection
 - [ ] Validate the SSE connection
 - [ ] Validate the MongoDB connection
+- [ ] Allow to create a game in degraded mode (save the session & playlist later)
+- [ ] Better management for panics
 - [ ] When a buzzer has the right to answer, send info to others that they don't have the right to buzz yet. When the buzzer ended its turn, send info to others that they  have the right to buzz now.
 - [ ] Allow to switch buzzer_id for a player
 - [ ] Update `mongo` value of `AppState ` to None (and send False to `degraded` watcher) each time a mongo function returns a connection error
@@ -226,3 +232,6 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 
 - Do we want to manage public SSE deconnexion ? No
 - Do we want to modify a playlist when it is already imported in the backend ? No, we import again
+- Do we want to add a timeout when a player has buzzed (to resume the game) ? Add an int config property (default: Infinite)
+- Do we want to prevent the previous buzzer to buzz again ? Add a bool config property (default: re-buzz authorized)
+

@@ -1,3 +1,4 @@
+pub mod admin_service;
 pub mod documentation;
 pub mod game_service;
 pub mod health_service;

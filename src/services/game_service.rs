@@ -8,7 +8,10 @@ use crate::{
         game::GameRepository,
         models::{GameEntity, PlaylistEntity},
     },
-    dto::game::{CreateGameRequest, GameSummary, PlayerInput, PlaylistInput, SongInput},
+    dto::{
+        admin::CreateGameFromPlaylistRequest,
+        game::{CreateGameRequest, GameSummary, PlayerInput, PlaylistInput, SongInput},
+    },
     error::ServiceError,
     services::sse_events,
     state::{
@@ -42,6 +45,47 @@ pub async fn create_game(
     sse_events::broadcast_game_teams(state, &game.players);
 
     Ok(game.into())
+}
+
+/// Bootstrap a fresh game with an existing playlist during the idle state.
+pub async fn create_game_from_playlist(
+    state: &SharedState,
+    request: CreateGameFromPlaylistRequest,
+) -> Result<GameSummary, ServiceError> {
+    ensure_idle(state).await?;
+
+    if request.name.trim().is_empty() {
+        return Err(ServiceError::InvalidInput(
+            "game name must not be empty".into(),
+        ));
+    }
+
+    let players = build_players(request.players)?;
+    let playlist_id = Uuid::parse_str(&request.playlist_id)
+        .map_err(|_| ServiceError::InvalidInput("invalid playlist id".into()))?;
+
+    let Some(mongo) = state.mongo().await else {
+        return Err(ServiceError::Degraded);
+    };
+    let repository = GameRepository::new(mongo);
+    let playlist_entity = repository
+        .find_playlist(playlist_id)
+        .await?
+        .ok_or_else(|| ServiceError::NotFound(format!("playlist `{}` not found", playlist_id)))?;
+
+    let playlist: crate::state::game::Playlist = playlist_entity.into();
+    let game_session = GameSession::new(request.name, players, playlist);
+
+    repository.save(game_session.clone().into()).await?;
+
+    {
+        let mut guard = state.current_game().write().await;
+        *guard = Some(game_session.clone());
+    }
+
+    sse_events::broadcast_game_teams(state, &game_session.players);
+
+    Ok(game_session.into())
 }
 
 /// Load an existing game from the database into the shared state.
@@ -121,7 +165,7 @@ fn build_game_session(request: CreateGameRequest) -> Result<GameSession, Service
     Ok(GameSession::new(name, players, playlist))
 }
 
-fn build_players(players: Vec<PlayerInput>) -> Result<Vec<Player>, ServiceError> {
+pub(crate) fn build_players(players: Vec<PlayerInput>) -> Result<Vec<Player>, ServiceError> {
     let mut seen_ids = HashSet::new();
     players
         .into_iter()

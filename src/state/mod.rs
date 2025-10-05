@@ -6,16 +6,15 @@ use std::sync::Arc;
 
 use axum::extract::ws::Message;
 use dashmap::DashMap;
-use serde_json::json;
 use tokio::sync::{Mutex, RwLock, mpsc, watch};
 use tracing::warn;
 
-use crate::{dao::mongodb::MongoManager, state::game::GameSession};
+use crate::{dao::mongodb::MongoManager, dto::ws::BuzzFeedback, state::game::GameSession};
 
 pub use self::sse::SseHub;
 use self::{
     sse::SseState,
-    state_machine::{GameEvent, GamePhase, GameStateMachine, InvalidTransition, TransitionEffect},
+    state_machine::{GameEvent, GamePhase, GameStateMachine, InvalidTransition},
 };
 
 pub type SharedState = Arc<AppState>;
@@ -131,36 +130,26 @@ impl AppState {
     /// Apply an event to the shared game state machine, returning the previous and next phase.
     pub async fn apply_game_event(&self, event: GameEvent) -> Result<GamePhase, InvalidTransition> {
         let mut sm = self.game.write().await;
-        let transition = sm.apply(event)?;
+        let next = sm.apply(event)?;
         drop(sm);
-
-        for effect in transition.effects {
-            match effect {
-                TransitionEffect::NotifyBuzzerTurnEnded { buzzer_id } => {
-                    self.notify_buzzer_turn_finished(&buzzer_id);
-                }
-            }
-        }
-
-        Ok(transition.next)
+        Ok(next)
     }
 
-    fn notify_buzzer_turn_finished(&self, buzzer_id: &str) {
+    pub fn notify_buzzer_turn_finished(&self, buzzer_id: &str) {
         let Some(connection) = self.buzzers.get(buzzer_id) else {
             return;
         };
 
-        let payload = json!({
-            "id": buzzer_id,
-            "can_answer": false,
-        })
-        .to_string();
-
         let tx = connection.tx.clone();
         drop(connection);
 
-        if let Err(err) = tx.send(Message::Text(payload.into())) {
-            warn!(id = %buzzer_id, error = %err, "failed to notify buzzer turn ended");
+        if let Ok(payload) = serde_json::to_string(&BuzzFeedback {
+            id: buzzer_id.into(),
+            can_answer: false,
+        }) {
+            if let Err(err) = tx.send(Message::Text(payload.into())) {
+                warn!(id = %buzzer_id, error = %err, "failed to notify buzzer turn ended");
+            }
         }
     }
 }

@@ -1,3 +1,4 @@
+use futures::TryStreamExt;
 use mongodb::{
     Collection, Database,
     bson::{Binary, doc, spec::BinarySubtype},
@@ -104,6 +105,43 @@ impl GameRepository {
             .find_one(doc! {"_id": uuid_as_binary(id)})
             .await
             .map_err(|source| MongoDaoError::LoadPlaylist { id, source })
+    }
+
+    pub async fn list_games(&self) -> Result<Vec<(Uuid, String)>, MongoDaoError> {
+        let collection = self
+            .collection()
+            .await
+            .map_err(|source| MongoDaoError::ListGames { source })?;
+
+        let docs: Vec<GameEntity> = collection
+            .find(doc! {})
+            .await
+            .map_err(|source| MongoDaoError::ListGames { source })?
+            .try_collect()
+            .await
+            .map_err(|source| MongoDaoError::ListGames { source })?;
+
+        Ok(docs.into_iter().map(|game| (game.id, game.name)).collect())
+    }
+
+    pub async fn list_playlists(&self) -> Result<Vec<(Uuid, String)>, MongoDaoError> {
+        let collection = self
+            .playlist_collection()
+            .await
+            .map_err(|source| MongoDaoError::ListPlaylists { source })?;
+
+        let docs: Vec<PlaylistEntity> = collection
+            .find(doc! {})
+            .await
+            .map_err(|source| MongoDaoError::ListPlaylists { source })?
+            .try_collect()
+            .await
+            .map_err(|source| MongoDaoError::ListPlaylists { source })?;
+
+        Ok(docs
+            .into_iter()
+            .map(|playlist| (playlist.id, playlist.name))
+            .collect())
     }
 }
 

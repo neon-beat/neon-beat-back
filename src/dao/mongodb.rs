@@ -92,6 +92,16 @@ pub enum MongoDaoError {
         #[source]
         source: MongoError,
     },
+    #[error("failed to list games")]
+    ListGames {
+        #[source]
+        source: MongoError,
+    },
+    #[error("failed to list playlists")]
+    ListPlaylists {
+        #[source]
+        source: MongoError,
+    },
 }
 
 /// Connect to MongoDB and start a watcher that keeps the connection healthy.
