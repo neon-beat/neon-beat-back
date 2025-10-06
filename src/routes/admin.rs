@@ -8,12 +8,11 @@ use uuid::Uuid;
 use crate::{
     dto::{
         admin::{
-            ActionResponse, AnswerValidationRequest, CreateGameFromPlaylistRequest,
-            FieldsFoundResponse, GameListItem, MarkFieldRequest, NextSongResponse,
-            PlaylistListItem, ScoreAdjustmentRequest, ScoreUpdateResponse, StartGameResponse,
-            StopGameResponse,
+            ActionResponse, AnswerValidationRequest, CreateGameRequest, FieldsFoundResponse,
+            GameListItem, MarkFieldRequest, NextSongResponse, PlaylistListItem,
+            ScoreAdjustmentRequest, ScoreUpdateResponse, StartGameResponse, StopGameResponse,
         },
-        game::{CreateGameRequest, GameSummary},
+        game::{CreateGameWithPlaylistRequest, GameSummary, PlaylistInput, PlaylistSummary},
     },
     error::AppError,
     services::admin_service,
@@ -25,11 +24,14 @@ pub fn router() -> Router<SharedState> {
     Router::new()
         .route("/admin/games", get(list_games).post(create_game))
         .route(
-            "/admin/games/from-playlist",
-            post(create_game_from_playlist),
+            "/admin/games/with-playlist",
+            post(create_game_with_playlist),
         )
         .route("/admin/games/{id}/load", post(load_game))
-        .route("/admin/playlists", get(list_playlists))
+        .route(
+            "/admin/playlists",
+            get(list_playlists).post(create_playlist),
+        )
         .route("/admin/game/start", post(start_game))
         .route("/admin/game/pause", post(pause_game))
         .route("/admin/game/resume", post(resume_game))
@@ -68,6 +70,21 @@ pub async fn list_playlists(
     Ok(Json(admin_service::list_playlists(&state).await?))
 }
 
+/// Create a reusable playlist definition for later use in games.
+#[utoipa::path(
+    post,
+    path = "/admin/playlists",
+    tag = "admin",
+    request_body = PlaylistInput,
+    responses((status = 200, description = "Playlist created", body = PlaylistSummary))
+)]
+pub async fn create_playlist(
+    State(state): State<SharedState>,
+    Json(payload): Json<PlaylistInput>,
+) -> Result<Json<PlaylistSummary>, AppError> {
+    Ok(Json(admin_service::create_playlist(&state, payload).await?))
+}
+
 /// Load and activate a stored game for continued play.
 #[utoipa::path(
     post,
@@ -88,12 +105,12 @@ pub async fn load_game(
     post,
     path = "/admin/games",
     tag = "admin",
-    request_body = CreateGameRequest,
+    request_body = CreateGameWithPlaylistRequest,
     responses((status = 200, description = "Game created", body = GameSummary))
 )]
-pub async fn create_game(
+pub async fn create_game_with_playlist(
     State(state): State<SharedState>,
-    Json(payload): Json<CreateGameRequest>,
+    Json(payload): Json<CreateGameWithPlaylistRequest>,
 ) -> Result<Json<GameSummary>, AppError> {
     Ok(Json(admin_service::create_game(&state, payload).await?))
 }
@@ -103,12 +120,12 @@ pub async fn create_game(
     post,
     path = "/admin/games/from-playlist",
     tag = "admin",
-    request_body = CreateGameFromPlaylistRequest,
+    request_body = CreateGameRequest,
     responses((status = 200, description = "Game created from playlist", body = GameSummary))
 )]
-pub async fn create_game_from_playlist(
+pub async fn create_game(
     State(state): State<SharedState>,
-    Json(payload): Json<CreateGameFromPlaylistRequest>,
+    Json(payload): Json<CreateGameRequest>,
 ) -> Result<Json<GameSummary>, AppError> {
     let game = admin_service::create_game_from_playlist(&state, payload).await?;
     Ok(Json(game))

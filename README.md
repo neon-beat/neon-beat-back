@@ -194,9 +194,10 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Implement admin routes:
    - [x] get games: OUTPUT is games IDs and names
    - [x] get playlists: OUTPUT is playlists IDs and names
+   - [x] create playlist: INPUT is PlaylistInput ; save the playlist in DB ; OUTPUT is the PlaylistSummary
    - [x] load game: INPUT is the game ID ; OUTPUT is the GameSummary and PlaylistSummary ; apply GameEvent::StartGame
-   - [x] create game with new playlist: INPUT is CreateGameRequest ; OUTPUT is the GameSummary and PlaylistSummary ; apply GameEvent::StartGame
-   - [x] create game with existing playlist ID: INPUT is LoadGameRequest (to create, similar to CreateGameRequest except playlist that has to be replaced by playlist_id) ; OUTPUT is the GameSummary and PlaylistSummary ; apply GameEvent::StartGame
+   - [x] create game with new playlist: INPUT is CreateGameWithPlaylistRequest ; OUTPUT is the GameSummary and PlaylistSummary ; apply GameEvent::StartGame
+   - [x] create game with existing playlist ID: INPUT is CreateGameRequest ; OUTPUT is the GameSummary and PlaylistSummary ; apply GameEvent::StartGame
    - [x] start game: OUTPUT is song to be found ; apply GameEvent::GameConfigured
    - [x] pause: OUTPUT is "paused" message ; apply GameEvent::Pause(PauseKind::Manual)
    - [x] mark field as found: OUTPUT is the list of found fields ; only possible in GamePhase::GameRunning and if GameRunningPhase is not GameRunningPhase::Prep
@@ -209,13 +210,15 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
    - [x] end game: OUTPUT is "ended" message ; apply GameEvent::EndGame
 - [x] Use Game State Machine
 - [x] Document the new admin endpoints (OpenAPI/utoipa)
+- [x] Raise an error if the playlist is empty during GameSession/Playlist creation/loading
+- [ ] Migrate from MongoDB to CouchDB
 - [ ] Implement a transaction system for state machine (prepare, to know if it is possible, then apply the waiting transaction when we have finished the processing)
-- [ ] Raise an error if the playlist is empty during GameSession creation/loading
-- [ ] Add middleware for admin routes (check token)
 - [ ] Implement public routes:
    - [ ] get teams/players
    - [ ] get song to find (& found fields)
    - [ ] get game phase
+- [ ] Reorganize routes if required
+- [ ] Add middleware for admin routes (check token)
 - [ ] Validate the Rest API /healthcheck route
 - [ ] Validate the WebSocket connection
 - [ ] Validate the SSE connection

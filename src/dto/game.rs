@@ -9,7 +9,7 @@ use crate::state::game::{GameSession, Player, Playlist, PointField, Song};
 
 /// Payload used to bootstrap a brand-new game instance.
 #[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateGameRequest {
+pub struct CreateGameWithPlaylistRequest {
     pub name: String,
     pub players: Vec<PlayerInput>,
     pub playlist: PlaylistInput,

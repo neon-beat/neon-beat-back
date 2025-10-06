@@ -7,12 +7,14 @@ use crate::{
     dao::game::GameRepository,
     dto::{
         admin::{
-            ActionResponse, AnswerValidationRequest, CreateGameFromPlaylistRequest, FieldKind,
+            ActionResponse, AnswerValidationRequest, CreateGameRequest, FieldKind,
             FieldsFoundResponse, GameListItem, MarkFieldRequest, NextSongResponse,
             PlaylistListItem, ScoreAdjustmentRequest, ScoreUpdateResponse, StartGameResponse,
             StopGameResponse,
         },
-        game::{CreateGameRequest, GameSummary, SongSummary},
+        game::{
+            CreateGameWithPlaylistRequest, GameSummary, PlaylistInput, PlaylistSummary, SongSummary,
+        },
     },
     error::ServiceError,
     services::{game_service, sse_events},
@@ -105,6 +107,15 @@ pub async fn list_playlists(state: &SharedState) -> Result<Vec<PlaylistListItem>
         .collect())
 }
 
+/// Create and persist a reusable playlist definition on behalf of admins.
+pub async fn create_playlist(
+    state: &SharedState,
+    request: PlaylistInput,
+) -> Result<PlaylistSummary, ServiceError> {
+    let (summary, _) = game_service::create_playlist(state, request).await?;
+    Ok(summary)
+}
+
 /// Load a persisted game, apply the appropriate SSE event and return the summary.
 pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, ServiceError> {
     sse_events::apply_and_broadcast_event(state, GameEvent::StartGame).await?;
@@ -115,20 +126,36 @@ pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, Ser
 /// Create a new game definition on behalf of admins.
 pub async fn create_game(
     state: &SharedState,
-    request: CreateGameRequest,
+    request: CreateGameWithPlaylistRequest,
 ) -> Result<GameSummary, ServiceError> {
     sse_events::apply_and_broadcast_event(state, GameEvent::StartGame).await?;
-    let summary = game_service::create_game(state, request).await?;
+    let (playlist_summary, playlist) =
+        game_service::create_playlist(state, request.playlist).await?;
+    let summary = game_service::create_game(
+        state,
+        request.name,
+        request.players,
+        playlist_summary.id,
+        Some(playlist),
+    )
+    .await?;
     Ok(summary)
 }
 
 /// Create a game from a stored playlist template.
 pub async fn create_game_from_playlist(
     state: &SharedState,
-    request: CreateGameFromPlaylistRequest,
+    request: CreateGameRequest,
 ) -> Result<GameSummary, ServiceError> {
     sse_events::apply_and_broadcast_event(state, GameEvent::StartGame).await?;
-    let summary = game_service::create_game_from_playlist(state, request).await?;
+    let summary = game_service::create_game(
+        state,
+        request.name,
+        request.players,
+        request.playlist_id,
+        None,
+    )
+    .await?;
     Ok(summary)
 }
 

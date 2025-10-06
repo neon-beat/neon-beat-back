@@ -8,10 +8,7 @@ use crate::{
         game::GameRepository,
         models::{GameEntity, PlaylistEntity},
     },
-    dto::{
-        admin::CreateGameFromPlaylistRequest,
-        game::{CreateGameRequest, GameSummary, PlayerInput, PlaylistInput, SongInput},
-    },
+    dto::game::{GameSummary, PlayerInput, PlaylistInput, PlaylistSummary, SongInput},
     error::ServiceError,
     services::sse_events,
     state::{
@@ -22,21 +19,88 @@ use crate::{
 
 const BUZZER_ID_LENGTH: usize = 12;
 
-/// Bootstrap a fresh game during the idle state.
-pub async fn create_game(
+/// Create and persist a reusable playlist definition on behalf of admins.
+pub async fn create_playlist(
     state: &SharedState,
-    request: CreateGameRequest,
-) -> Result<GameSummary, ServiceError> {
-    ensure_idle(state).await?;
+    request: PlaylistInput,
+) -> Result<(PlaylistSummary, Playlist), ServiceError> {
+    let PlaylistInput { name, songs } = request;
 
-    let game = build_game_session(request)?;
+    if songs.is_empty() {
+        return Err(ServiceError::InvalidInput(
+            "playlist songs must not be empty".into(),
+        ));
+    }
+
+    let playlist = build_playlist(songs, name)?;
+
+    // Preserve deterministic ordering based on the assigned song identifiers.
+    let song_count = playlist.songs.len() as u32;
+    let order: Vec<u32> = (0..song_count).collect();
+    let summary: PlaylistSummary = (playlist.clone(), order).into();
+
+    let entity: PlaylistEntity = playlist.clone().into();
 
     let Some(mongo) = state.mongo().await else {
         return Err(ServiceError::Degraded);
     };
     let repository = GameRepository::new(mongo);
-    repository.save(game.clone().into()).await?;
 
+    repository.save_playlist(entity).await?;
+
+    Ok((summary, playlist))
+}
+
+/// Bootstrap a fresh game during the idle state (with or without a playlist).
+pub async fn create_game(
+    state: &SharedState,
+    name: String,
+    players: Vec<PlayerInput>,
+    playlist_id: String,
+    playlist: Option<Playlist>,
+) -> Result<GameSummary, ServiceError> {
+    ensure_idle(state).await?;
+
+    if name.trim().is_empty() {
+        return Err(ServiceError::InvalidInput(
+            "game name must not be empty".into(),
+        ));
+    }
+
+    if players.is_empty() {
+        return Err(ServiceError::InvalidInput(
+            "a game requires at least one player".into(),
+        ));
+    }
+
+    let players = build_players(players)?;
+
+    let Some(mongo) = state.mongo().await else {
+        return Err(ServiceError::Degraded);
+    };
+    let repository = GameRepository::new(mongo);
+
+    let playlist = playlist.unwrap_or({
+        let playlist_id = Uuid::parse_str(&playlist_id)
+            .map_err(|_| ServiceError::InvalidInput("invalid playlist id".into()))?;
+        let playlist_entity = repository
+            .find_playlist(playlist_id)
+            .await?
+            .ok_or_else(|| {
+                ServiceError::NotFound(format!("playlist `{}` not found", playlist_id))
+            })?;
+        playlist_entity.into()
+    });
+
+    if playlist.songs.is_empty() {
+        return Err(ServiceError::InvalidInput(
+            "playlist must contain at least one song".into(),
+        ));
+    }
+
+    let game = GameSession::new(name, players, playlist);
+
+    repository.save(game.clone().into()).await?;
     {
         let mut slot = state.current_game().write().await;
         *slot = Some(game.clone());
@@ -47,47 +111,6 @@ pub async fn create_game(
     Ok(game.into())
 }
 
-/// Bootstrap a fresh game with an existing playlist during the idle state.
-pub async fn create_game_from_playlist(
-    state: &SharedState,
-    request: CreateGameFromPlaylistRequest,
-) -> Result<GameSummary, ServiceError> {
-    ensure_idle(state).await?;
-
-    if request.name.trim().is_empty() {
-        return Err(ServiceError::InvalidInput(
-            "game name must not be empty".into(),
-        ));
-    }
-
-    let players = build_players(request.players)?;
-    let playlist_id = Uuid::parse_str(&request.playlist_id)
-        .map_err(|_| ServiceError::InvalidInput("invalid playlist id".into()))?;
-
-    let Some(mongo) = state.mongo().await else {
-        return Err(ServiceError::Degraded);
-    };
-    let repository = GameRepository::new(mongo);
-    let playlist_entity = repository
-        .find_playlist(playlist_id)
-        .await?
-        .ok_or_else(|| ServiceError::NotFound(format!("playlist `{}` not found", playlist_id)))?;
-
-    let playlist: crate::state::game::Playlist = playlist_entity.into();
-    let game_session = GameSession::new(request.name, players, playlist);
-
-    repository.save(game_session.clone().into()).await?;
-
-    {
-        let mut guard = state.current_game().write().await;
-        *guard = Some(game_session.clone());
-    }
-
-    sse_events::broadcast_game_teams(state, &game_session.players);
-
-    Ok(game_session.into())
-}
-
 /// Load an existing game from the database into the shared state.
 pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, ServiceError> {
     ensure_idle(state).await?;
@@ -96,15 +119,23 @@ pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, Ser
         return Err(ServiceError::Degraded);
     };
     let repository = GameRepository::new(mongo);
+
     let Some(game) = repository.find(id).await? else {
         return Err(ServiceError::NotFound(format!("game `{id}` not found")));
     };
+
     let Some(playlist) = repository.find_playlist(game.playlist_id).await? else {
         return Err(ServiceError::NotFound(format!(
             "playlist `{}` not found",
             game.playlist_id
         )));
     };
+
+    if playlist.songs.is_empty() {
+        return Err(ServiceError::InvalidInput(
+            "playlist must contain at least one song".into(),
+        ));
+    }
 
     validate_persisted_game(&game, &playlist)?;
 
@@ -127,42 +158,6 @@ async fn ensure_idle(state: &SharedState) -> Result<(), ServiceError> {
         ));
     }
     Ok(())
-}
-
-fn build_game_session(request: CreateGameRequest) -> Result<GameSession, ServiceError> {
-    let CreateGameRequest {
-        name,
-        players,
-        playlist,
-    } = request;
-
-    if name.trim().is_empty() {
-        return Err(ServiceError::InvalidInput(
-            "game name must not be empty".into(),
-        ));
-    }
-
-    if players.is_empty() {
-        return Err(ServiceError::InvalidInput(
-            "a game requires at least one player".into(),
-        ));
-    }
-
-    let PlaylistInput {
-        name: playlist_name,
-        songs,
-    } = playlist;
-
-    if songs.is_empty() {
-        return Err(ServiceError::InvalidInput(
-            "playlist must contain at least one song".into(),
-        ));
-    }
-
-    let players = build_players(players)?;
-    let playlist = build_playlist(songs, playlist_name)?;
-
-    Ok(GameSession::new(name, players, playlist))
 }
 
 pub(crate) fn build_players(players: Vec<PlayerInput>) -> Result<Vec<Player>, ServiceError> {
@@ -202,7 +197,11 @@ pub(crate) fn build_players(players: Vec<PlayerInput>) -> Result<Vec<Player>, Se
         .collect()
 }
 
-fn build_playlist(songs: Vec<SongInput>, name: String) -> Result<Playlist, ServiceError> {
+/// Construct a playlist from user-provided song metadata.
+pub(crate) fn build_playlist(
+    songs: Vec<SongInput>,
+    name: String,
+) -> Result<Playlist, ServiceError> {
     if name.trim().is_empty() {
         return Err(ServiceError::InvalidInput(
             "playlist name must not be empty".into(),

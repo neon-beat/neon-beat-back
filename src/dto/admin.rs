@@ -21,7 +21,7 @@ pub struct PlaylistListItem {
 
 /// Payload describing how to spin up a game from an existing playlist definition.
 #[derive(Debug, Deserialize, ToSchema)]
-pub struct CreateGameFromPlaylistRequest {
+pub struct CreateGameRequest {
     pub name: String,
     pub players: Vec<PlayerInput>,
     pub playlist_id: String,
