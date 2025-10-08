@@ -98,11 +98,6 @@ impl GameStateMachine {
         self.phase.clone()
     }
 
-    /// Last recorded reason used when leaving gameplay for the scoreboard.
-    pub fn last_finish_reason(&self) -> Option<FinishReason> {
-        self.last_finish_reason
-    }
-
     /// Apply an event and update the underlying phase if the transition is valid.
     pub fn apply(&mut self, event: GameEvent) -> Result<GamePhase, InvalidTransition> {
         let next = match (self.phase.clone(), event) {
@@ -153,7 +148,7 @@ mod tests {
     fn initial_state_is_idle() {
         let sm = GameStateMachine::new();
         assert_eq!(sm.phase(), GamePhase::Idle);
-        assert_eq!(sm.last_finish_reason(), None);
+        assert_eq!(sm.last_finish_reason, None);
     }
 
     #[test]
@@ -185,12 +180,9 @@ mod tests {
                 .unwrap(),
             GamePhase::ShowScores
         );
-        assert_eq!(
-            sm.last_finish_reason(),
-            Some(FinishReason::PlaylistCompleted)
-        );
+        assert_eq!(sm.last_finish_reason, Some(FinishReason::PlaylistCompleted));
         assert_eq!(sm.apply(GameEvent::EndGame).unwrap(), GamePhase::Idle);
-        assert_eq!(sm.last_finish_reason(), None);
+        assert_eq!(sm.last_finish_reason, None);
     }
 
     #[test]
@@ -245,7 +237,7 @@ mod tests {
                 .unwrap(),
             GamePhase::ShowScores
         );
-        assert_eq!(sm.last_finish_reason(), Some(FinishReason::ManualStop));
+        assert_eq!(sm.last_finish_reason, Some(FinishReason::ManualStop));
     }
 
     #[test]

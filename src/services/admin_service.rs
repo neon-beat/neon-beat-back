@@ -87,10 +87,7 @@ pub async fn list_games(state: &SharedState) -> Result<Vec<GameListItem>, Servic
     let entries = repository.list_games().await?;
     Ok(entries
         .into_iter()
-        .map(|(id, name)| GameListItem {
-            id: id.to_string(),
-            name,
-        })
+        .map(|(id, name)| GameListItem { id, name })
         .collect())
 }
 
@@ -100,10 +97,7 @@ pub async fn list_playlists(state: &SharedState) -> Result<Vec<PlaylistListItem>
     let entries = repository.list_playlists().await?;
     Ok(entries
         .into_iter()
-        .map(|(id, name)| PlaylistListItem {
-            id: id.to_string(),
-            name,
-        })
+        .map(|(id, name)| PlaylistListItem { id, name })
         .collect())
 }
 
@@ -349,7 +343,7 @@ pub async fn mark_field_found(
         }
 
         let response = FieldsFoundResponse {
-            song_id: song_id.clone().to_string(),
+            song_id: song_id,
             point_fields: game.found_point_fields.clone(),
             bonus_fields: game.found_bonus_fields.clone(),
         };

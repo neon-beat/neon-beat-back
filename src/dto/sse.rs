@@ -9,18 +9,6 @@ pub struct ServerEvent {
 }
 
 impl ServerEvent {
-    /// Build a raw SSE event with pre-serialised content.
-    pub fn new<E, D>(event: E, data: D) -> Self
-    where
-        E: Into<Option<String>>,
-        D: Into<String>,
-    {
-        Self {
-            event: event.into(),
-            data: data.into(),
-        }
-    }
-
     /// Convenience wrapper that serialises `payload` into the SSE data field.
     pub fn json<E, T>(event: E, payload: &T) -> serde_json::Result<Self>
     where
@@ -70,7 +58,7 @@ pub struct TeamSummary {
 #[derive(Debug, Serialize, ToSchema)]
 /// Broadcast when point or bonus fields have been marked as found.
 pub struct FieldsFoundEvent {
-    pub song_id: String,
+    pub song_id: u32,
     pub point_fields: Vec<String>,
     pub bonus_fields: Vec<String>,
 }
@@ -100,9 +88,9 @@ pub struct PhaseSnapshot {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SongSnapshot {
-    pub id: String,
-    pub starts_at_ms: u64,
-    pub guess_duration_ms: u64,
+    pub id: u32,
+    pub starts_at_ms: usize,
+    pub guess_duration_ms: usize,
     pub url: String,
     pub point_fields: Vec<PointFieldSnapshot>,
     pub bonus_fields: Vec<PointFieldSnapshot>,
@@ -112,7 +100,7 @@ pub struct SongSnapshot {
 pub struct PointFieldSnapshot {
     pub key: String,
     pub value: String,
-    pub points: i8,
+    pub points: u8,
 }
 
 impl From<crate::state::game::Player> for TeamSummary {

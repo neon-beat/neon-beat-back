@@ -212,7 +212,6 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Document the new admin endpoints (OpenAPI/utoipa)
 - [x] Raise an error if the playlist is empty during GameSession/Playlist creation/loading
 - [x] Add song ID to MarkFieldRequest
-- [ ] Use UUID in DTOs instead of Strings (e.g. playlist ID in PlaylistSummary)
 - [ ] Implement a transaction system for state machine (prepare, to know if it is possible, then apply the waiting transaction when we have finished the processing)
 - [ ] Migrate from MongoDB to CouchDB
 - [ ] Implement public routes:

@@ -2,20 +2,21 @@
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::dto::game::{PlayerInput, SongSummary};
 
 /// Minimal projection of a game when listed for administrators.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GameListItem {
-    pub id: String,
+    pub id: Uuid,
     pub name: String,
 }
 
 /// Minimal projection of a playlist available for game creation.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PlaylistListItem {
-    pub id: String,
+    pub id: Uuid,
     pub name: String,
 }
 
@@ -24,7 +25,7 @@ pub struct PlaylistListItem {
 pub struct CreateGameRequest {
     pub name: String,
     pub players: Vec<PlayerInput>,
-    pub playlist_id: String,
+    pub playlist_id: Uuid,
 }
 
 /// Classifies the type of field discovered during gameplay.
@@ -46,7 +47,7 @@ pub struct MarkFieldRequest {
 /// Response summarising the fields uncovered for the current song.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct FieldsFoundResponse {
-    pub song_id: String,
+    pub song_id: u32,
     pub point_fields: Vec<String>,
     pub bonus_fields: Vec<String>,
 }

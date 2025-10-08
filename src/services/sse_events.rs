@@ -37,7 +37,7 @@ pub fn broadcast_fields_found(
     bonus_fields: &[String],
 ) {
     let payload = FieldsFoundEvent {
-        song_id: song_id.to_string(),
+        song_id: song_id,
         point_fields: point_fields.to_vec(),
         bonus_fields: bonus_fields.to_vec(),
     };
@@ -164,8 +164,8 @@ fn current_song_snapshot(game: &GameSession) -> Option<SongSnapshot> {
     let song = song_ref.value();
 
     Some(SongSnapshot {
-        id: song_id.to_string(),
-        starts_at_ms: song.start_time_ms,
+        id: song_id,
+        starts_at_ms: song.starts_at_ms,
         guess_duration_ms: song.guess_duration_ms,
         url: song.url.clone(),
         point_fields: song

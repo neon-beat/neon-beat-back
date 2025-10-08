@@ -4,6 +4,7 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use crate::state::game::{GameSession, Player, Playlist, PointField, Song};
 
@@ -32,8 +33,8 @@ pub struct PlaylistInput {
 /// Song details required to populate a playlist.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SongInput {
-    pub starts_at_ms: u64,
-    pub guess_duration_ms: u64,
+    pub starts_at_ms: usize,
+    pub guess_duration_ms: usize,
     pub url: String,
     pub point_fields: Vec<PointFieldInput>,
     #[serde(default)]
@@ -45,7 +46,7 @@ pub struct SongInput {
 pub struct PointFieldInput {
     pub key: String,
     pub value: String,
-    pub points: i8,
+    pub points: u8,
 }
 
 /// Summary returned once a game has been created or loaded.
@@ -69,7 +70,7 @@ pub struct PlayerSummary {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PlaylistSummary {
-    pub id: String,
+    pub id: Uuid,
     pub name: String,
     pub songs: Vec<SongSummary>,
 }
@@ -77,8 +78,8 @@ pub struct PlaylistSummary {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SongSummary {
     pub id: String,
-    pub starts_at_ms: u64,
-    pub guess_duration_ms: u64,
+    pub starts_at_ms: usize,
+    pub guess_duration_ms: usize,
     pub url: String,
     pub point_fields: Vec<PointFieldSummary>,
     pub bonus_fields: Vec<PointFieldSummary>,
@@ -88,7 +89,7 @@ pub struct SongSummary {
 pub struct PointFieldSummary {
     pub key: String,
     pub value: String,
-    pub points: i8,
+    pub points: u8,
 }
 
 #[derive(Debug, Error)]
@@ -121,7 +122,7 @@ impl From<(u32, Song)> for SongSummary {
     fn from((id, song): (u32, Song)) -> Self {
         Self {
             id: id.to_string(),
-            starts_at_ms: song.start_time_ms,
+            starts_at_ms: song.starts_at_ms,
             guess_duration_ms: song.guess_duration_ms,
             url: song.url,
             point_fields: song.point_fields.into_iter().map(Into::into).collect(),
@@ -139,7 +140,7 @@ impl From<(Playlist, Vec<u32>)> for PlaylistSummary {
             )
         });
         Self {
-            id: playlist.id.to_string(),
+            id: playlist.id,
             name: playlist.name,
             songs,
         }

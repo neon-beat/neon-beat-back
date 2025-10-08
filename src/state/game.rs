@@ -20,9 +20,9 @@ pub struct Playlist {
 #[derive(Debug, Clone)]
 pub struct Song {
     /// Timestamp (milliseconds) where the song preview should start.
-    pub start_time_ms: u64,
+    pub starts_at_ms: usize,
     /// Allowed time (milliseconds) for teams to identify the song.
-    pub guess_duration_ms: u64,
+    pub guess_duration_ms: usize,
     /// URL pointing to the media resource.
     pub url: String,
     /// Fields required to award the base points (e.g., song title, artist).
@@ -39,7 +39,7 @@ pub struct PointField {
     /// The value to found for this field (e.g. the actual artist name).
     pub value: String,
     /// The number of points given if this field is found.
-    pub points: i8,
+    pub points: u8,
 }
 
 /// Player info tracked during a game session.
@@ -145,7 +145,7 @@ impl From<PointField> for PointFieldEntity {
 impl From<SongEntity> for Song {
     fn from(value: SongEntity) -> Self {
         Self {
-            start_time_ms: value.starts_at_ms,
+            starts_at_ms: value.starts_at_ms,
             guess_duration_ms: value.guess_duration_ms,
             url: value.url,
             point_fields: value.point_fields.into_iter().map(Into::into).collect(),
@@ -157,7 +157,7 @@ impl From<SongEntity> for Song {
 impl From<Song> for SongEntity {
     fn from(value: Song) -> Self {
         Self {
-            starts_at_ms: value.start_time_ms,
+            starts_at_ms: value.starts_at_ms,
             guess_duration_ms: value.guess_duration_ms,
             url: value.url,
             point_fields: value.point_fields.into_iter().map(Into::into).collect(),

@@ -19,9 +19,9 @@ pub struct PlaylistEntity {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SongEntity {
     /// Timestamp (milliseconds) where the song preview should start.
-    pub starts_at_ms: u64,
+    pub starts_at_ms: usize,
     /// Allowed time (milliseconds) for teams to identify the song.
-    pub guess_duration_ms: u64,
+    pub guess_duration_ms: usize,
     /// URL pointing to the media resource.
     pub url: String,
     /// Fields required to award the base points (e.g., song title, artist).
@@ -38,7 +38,7 @@ pub struct PointFieldEntity {
     /// The value to found for this field (e.g. the actual artist name).
     pub value: String,
     /// The number of points given if this field is found.
-    pub points: i8,
+    pub points: u8,
 }
 
 /// Representation of a player stored in MongoDB and shared across layers.
@@ -72,11 +72,4 @@ pub struct GameEntity {
     pub playlist_song_order: Vec<u32>,
     /// Index of the current song to be found.
     pub current_song_index: Option<usize>,
-}
-
-impl GameEntity {
-    /// Update the modification timestamp.
-    pub fn touch(&mut self) {
-        self.updated_at = DateTime::now();
-    }
 }

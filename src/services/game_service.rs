@@ -56,7 +56,7 @@ pub async fn create_game(
     state: &SharedState,
     name: String,
     players: Vec<PlayerInput>,
-    playlist_id: String,
+    playlist_id: Uuid,
     playlist: Option<Playlist>,
 ) -> Result<GameSummary, ServiceError> {
     ensure_idle(state).await?;
@@ -81,8 +81,6 @@ pub async fn create_game(
     let repository = GameRepository::new(mongo);
 
     let playlist = playlist.unwrap_or({
-        let playlist_id = Uuid::parse_str(&playlist_id)
-            .map_err(|_| ServiceError::InvalidInput("invalid playlist id".into()))?;
         let playlist_entity = repository
             .find_playlist(playlist_id)
             .await?
@@ -233,7 +231,7 @@ pub(crate) fn build_playlist(
             Ok((
                 (index as u32),
                 Song {
-                    start_time_ms: song.starts_at_ms,
+                    starts_at_ms: song.starts_at_ms,
                     guess_duration_ms: song.guess_duration_ms,
                     url: song.url,
                     point_fields: song
