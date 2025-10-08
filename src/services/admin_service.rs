@@ -322,6 +322,11 @@ pub async fn mark_field_found(
             .playlist_song_order
             .get(index)
             .ok_or_else(|| ServiceError::InvalidState("song index out of bounds".into()))?;
+        if song_id != request.song_id {
+            return Err(ServiceError::InvalidState(
+                "given song ID does not correspond to the current song of the game".into(),
+            ));
+        }
         let song = game
             .playlist
             .songs

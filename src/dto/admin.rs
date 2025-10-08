@@ -38,6 +38,7 @@ pub enum FieldKind {
 /// Request to mark a point or bonus field as revealed.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct MarkFieldRequest {
+    pub song_id: u32,
     pub field_key: String,
     pub kind: FieldKind,
 }
