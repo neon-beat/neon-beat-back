@@ -212,7 +212,8 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Document the new admin endpoints (OpenAPI/utoipa)
 - [x] Raise an error if the playlist is empty during GameSession/Playlist creation/loading
 - [x] Add song ID to MarkFieldRequest
-- [ ] Implement a transaction system for state machine (prepare, to know if it is possible, then apply the waiting transaction when we have finished the processing)
+- [x] Implement a transaction system for state machine (prepare, to know if it is possible, then apply the waiting transaction when we have finished the processing)
+- [ ] Save last_finish_reason for the game in DB
 - [ ] Migrate from MongoDB to CouchDB
 - [ ] Implement public routes:
    - [ ] get teams/players
@@ -220,10 +221,12 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
    - [ ] get game phase
 - [ ] Reorganize routes if required
 - [ ] Add middleware for admin routes (check token)
+- [ ] Better management for errors
 - [ ] Validate the Rest API /healthcheck route
 - [ ] Validate the WebSocket connection
 - [ ] Validate the SSE connection
 - [ ] Validate the MongoDB connection
+- [ ] Migrate from DashMap to HashMap if DashMap is useless
 - [ ] Allow to create a game in degraded mode (save the session & playlist later)
 - [ ] Better management for panics
 - [ ] When a buzzer has the right to answer, send info to others that they don't have the right to buzz yet. When the buzzer ended its turn, send info to others that they  have the right to buzz now.

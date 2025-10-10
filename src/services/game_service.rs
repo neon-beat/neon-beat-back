@@ -149,8 +149,8 @@ pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, Ser
 }
 
 async fn ensure_idle(state: &SharedState) -> Result<(), ServiceError> {
-    let guard = state.game().read().await;
-    if !matches!(guard.phase(), state::state_machine::GamePhase::Idle) {
+    let phase = state.state_machine_phase().await;
+    if !matches!(phase, state::state_machine::GamePhase::Idle) {
         return Err(ServiceError::InvalidState(
             "game can only be bootstrapped while idle".into(),
         ));

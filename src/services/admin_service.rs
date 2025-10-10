@@ -1,4 +1,6 @@
-//! Business logic backing the admin API surface.
+//! Business logic powering the admin REST routes. These helpers coordinate
+//! MongoDB persistence, in-memory state updates, and state-machine transitions
+//! while honouring the single-transition-at-a-time requirement.
 
 use mongodb::bson::DateTime;
 use uuid::Uuid;
@@ -15,6 +17,7 @@ use crate::{
         game::{
             CreateGameWithPlaylistRequest, GameSummary, PlaylistInput, PlaylistSummary, SongSummary,
         },
+        sse::TeamSummary,
     },
     error::ServiceError,
     services::{game_service, sse_events},
@@ -22,10 +25,11 @@ use crate::{
         SharedState,
         game::{GameSession, PointField},
         state_machine::{FinishReason, GameEvent, GamePhase, GameRunningPhase, PauseKind},
+        transitions::run_transition_with_broadcast,
     },
 };
 
-/// Retrieve a `GameRepository` instance or surface degraded mode.
+/// Obtain a MongoDB repository instance or surface degraded mode.
 async fn mongo_repo(state: &SharedState) -> Result<GameRepository, ServiceError> {
     let Some(mongo) = state.mongo().await else {
         return Err(ServiceError::Degraded);
@@ -33,7 +37,7 @@ async fn mongo_repo(state: &SharedState) -> Result<GameRepository, ServiceError>
     Ok(GameRepository::new(mongo))
 }
 
-/// Snapshot the in-memory game back into persistent storage.
+/// Persist the in-memory game session back into MongoDB.
 async fn persist_current_game(state: &SharedState) -> Result<(), ServiceError> {
     let repository = mongo_repo(state).await?;
     let snapshot = {
@@ -47,17 +51,6 @@ async fn persist_current_game(state: &SharedState) -> Result<(), ServiceError> {
     Ok(())
 }
 
-/// Guard helper requiring the game to be running before mutating state.
-async fn ensure_running_phase(state: &SharedState) -> Result<GameRunningPhase, ServiceError> {
-    let phase = { state.game().read().await.phase() };
-    match phase {
-        GamePhase::GameRunning(sub) => Ok(sub),
-        other => Err(ServiceError::InvalidState(format!(
-            "operation requires running phase, current: {other:?}"
-        ))),
-    }
-}
-
 /// Borrow the active game session mutably or produce an invalid-state error.
 fn unwrap_current_game_mut(
     guard: &mut Option<GameSession>,
@@ -67,21 +60,20 @@ fn unwrap_current_game_mut(
         .ok_or_else(|| ServiceError::InvalidState("no active game".into()))
 }
 
-/// Convert the requested playlist entry into a `SongSummary` payload.
-fn song_summary(game: &GameSession, index: usize) -> Result<SongSummary, ServiceError> {
-    let song_id = *game
-        .playlist_song_order
-        .get(index)
-        .ok_or_else(|| ServiceError::InvalidState("song index out of bounds".into()))?;
-    let song_entry = game
-        .playlist
-        .songs
-        .get(&song_id)
-        .ok_or_else(|| ServiceError::InvalidState("song not found in playlist".into()))?;
-    Ok((song_id, song_entry.value().clone()).into())
+/// Return the games persisted in MongoDB for selection in the admin UI.
+fn ensure_running_phase(phase: GamePhase) -> Result<GameRunningPhase, ServiceError> {
+    match phase {
+        GamePhase::GameRunning(sub) => Ok(sub),
+        other => Err(ServiceError::InvalidState(format!(
+            "operation requires running phase, current: {other:?}"
+        ))),
+    }
 }
 
-/// Return the games persisted in MongoDB for selection in the admin UI.
+// ---------------------------------------------------------------------------
+// Read-only projections
+// ---------------------------------------------------------------------------
+
 pub async fn list_games(state: &SharedState) -> Result<Vec<GameListItem>, ServiceError> {
     let repository = mongo_repo(state).await?;
     let entries = repository.list_games().await?;
@@ -106,15 +98,20 @@ pub async fn create_playlist(
     state: &SharedState,
     request: PlaylistInput,
 ) -> Result<PlaylistSummary, ServiceError> {
-    let (summary, _) = game_service::create_playlist(state, request).await?;
+    let (summary, _playlist) = game_service::create_playlist(state, request).await?;
     Ok(summary)
 }
 
+// ---------------------------------------------------------------------------
+// Game bootstrap / lifecycle operations
+// ---------------------------------------------------------------------------
+
 /// Load a persisted game, apply the appropriate SSE event and return the summary.
 pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, ServiceError> {
-    sse_events::apply_and_broadcast_event(state, GameEvent::StartGame).await?;
-    let summary = game_service::load_game(state, id).await?;
-    Ok(summary)
+    run_transition_with_broadcast(state, GameEvent::StartGame, move || async move {
+        game_service::load_game(state, id).await
+    })
+    .await
 }
 
 /// Create a new game definition on behalf of admins.
@@ -122,18 +119,19 @@ pub async fn create_game(
     state: &SharedState,
     request: CreateGameWithPlaylistRequest,
 ) -> Result<GameSummary, ServiceError> {
-    sse_events::apply_and_broadcast_event(state, GameEvent::StartGame).await?;
-    let (playlist_summary, playlist) =
-        game_service::create_playlist(state, request.playlist).await?;
-    let summary = game_service::create_game(
-        state,
-        request.name,
-        request.players,
-        playlist_summary.id,
-        Some(playlist),
-    )
-    .await?;
-    Ok(summary)
+    run_transition_with_broadcast(state, GameEvent::StartGame, move || async move {
+        let (_playlist_summary, playlist_model) =
+            game_service::create_playlist(state, request.playlist).await?;
+        game_service::create_game(
+            state,
+            request.name,
+            request.players,
+            playlist_model.id,
+            Some(playlist_model),
+        )
+        .await
+    })
+    .await
 }
 
 /// Create a game from a stored playlist template.
@@ -141,190 +139,208 @@ pub async fn create_game_from_playlist(
     state: &SharedState,
     request: CreateGameRequest,
 ) -> Result<GameSummary, ServiceError> {
-    sse_events::apply_and_broadcast_event(state, GameEvent::StartGame).await?;
-    let summary = game_service::create_game(
-        state,
-        request.name,
-        request.players,
-        request.playlist_id,
-        None,
-    )
-    .await?;
-    Ok(summary)
+    run_transition_with_broadcast(state, GameEvent::StartGame, move || async move {
+        game_service::create_game(
+            state,
+            request.name,
+            request.players,
+            request.playlist_id,
+            None,
+        )
+        .await
+    })
+    .await
 }
 
 /// Move the admin-controlled game into the running phase and expose the first song.
 pub async fn start_game(state: &SharedState) -> Result<StartGameResponse, ServiceError> {
-    sse_events::apply_and_broadcast_event(state, GameEvent::GameConfigured).await?;
-    let song = {
-        let mut guard = state.current_game().write().await;
-        let game = unwrap_current_game_mut(&mut guard)?;
-        if game.playlist_song_order.is_empty() {
-            panic!("Error when starting game: list should not be empty here (checked before)")
-        }
-        game.current_song_index = Some(0);
-        game.found_point_fields.clear();
-        game.found_bonus_fields.clear();
-        game.updated_at = DateTime::now();
-        song_summary(game, 0)?
-    };
-
-    persist_current_game(state).await?;
-    Ok(StartGameResponse { song })
+    let song_summary = load_next_song(state, true)
+        .await?
+        .expect("Error during game start: no song found in playlist after transitionning the state (should not happen)");
+    Ok(StartGameResponse { song: song_summary })
 }
 
 /// Pause gameplay manually through the admin controls.
 pub async fn pause_game(state: &SharedState) -> Result<ActionResponse, ServiceError> {
-    sse_events::apply_and_broadcast_event(state, GameEvent::Pause(PauseKind::Manual)).await?;
-    Ok(ActionResponse {
-        message: "paused".into(),
-    })
+    run_transition_with_broadcast(
+        state,
+        GameEvent::Pause(PauseKind::Manual),
+        move || async move {
+            Ok(ActionResponse {
+                message: "paused".into(),
+            })
+        },
+    )
+    .await
 }
 
 /// Resume gameplay when an admin clears a pause.
 pub async fn resume_game(state: &SharedState) -> Result<ActionResponse, ServiceError> {
-    // First retrieve buzzer ID of current phase (if we are in pause by buzz)
-    let buzzer_id = match state.game().read().await.phase() {
-        GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { id })) => Some(id),
-        _ => None,
-    };
-    // Then apply the event and continue
-    sse_events::apply_and_broadcast_event(state, GameEvent::ContinuePlaying).await?;
-    if let Some(id) = buzzer_id {
-        state.notify_buzzer_turn_finished(&id);
-    }
-    Ok(ActionResponse {
-        message: "resumed".into(),
+    run_transition_with_broadcast(state, GameEvent::ContinuePlaying, move || async move {
+        if let GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { id })) =
+            state.state_machine_phase().await
+        {
+            state.notify_buzzer_turn_finished(&id)
+        };
+        Ok(ActionResponse {
+            message: "resumed".into(),
+        })
     })
+    .await
 }
 
 /// Reveal the current song and conclude any outstanding buzz sequence.
 pub async fn reveal(state: &SharedState) -> Result<ActionResponse, ServiceError> {
-    // First retrieve buzzer ID of current phase (if we are in pause by buzz)
-    let buzzer_id = match state.game().read().await.phase() {
-        GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { id })) => Some(id),
-        _ => None,
-    };
-    // Then apply the event and continue
-    sse_events::apply_and_broadcast_event(state, GameEvent::Reveal).await?;
-    if let Some(id) = buzzer_id {
-        state.notify_buzzer_turn_finished(&id);
-    }
-    Ok(ActionResponse {
-        message: "revealed".into(),
+    run_transition_with_broadcast(state, GameEvent::Reveal, move || async move {
+        if let GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { id })) =
+            state.state_machine_phase().await
+        {
+            state.notify_buzzer_turn_finished(&id)
+        };
+        Ok(ActionResponse {
+            message: "revealed".into(),
+        })
     })
+    .await
 }
 
 /// Advance to the next song or finish the playlist when exhausted.
 pub async fn next_song(state: &SharedState) -> Result<NextSongResponse, ServiceError> {
-    let next_index = {
+    let next_song_summary = load_next_song(state, false).await?;
+    let response = NextSongResponse {
+        finished: next_song_summary.is_none(),
+        song: next_song_summary,
+    };
+    Ok(response)
+}
+
+async fn load_next_song(
+    state: &SharedState,
+    start: bool,
+) -> Result<Option<SongSummary>, ServiceError> {
+    let (event, next_index) = if start {
+        (GameEvent::GameConfigured, Some(0))
+    } else {
         let guard = state.current_game().read().await;
         let game = guard
             .as_ref()
             .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
-        let len = game.playlist_song_order.len();
         let current = game
             .current_song_index
             .ok_or_else(|| ServiceError::InvalidState("no active song".into()))?;
+        let len = game.playlist_song_order.len();
         if current + 1 < len {
-            Some(current + 1)
+            (GameEvent::NextSong, Some(current + 1))
         } else {
-            None // playlist is finished
+            (GameEvent::Finish(FinishReason::PlaylistCompleted), None)
         }
     };
 
-    if next_index.is_some() {
-        sse_events::apply_and_broadcast_event(state, GameEvent::NextSong).await?;
-    } else {
-        sse_events::apply_and_broadcast_event(
-            state,
-            GameEvent::Finish(FinishReason::PlaylistCompleted),
-        )
-        .await?;
-    }
+    run_transition_with_broadcast(state, event, move || async move {
+        let summary = {
+            let mut guard = state.current_game().write().await;
+            let game = unwrap_current_game_mut(&mut guard)?;
+            game.current_song_index = next_index;
+            game.found_point_fields.clear();
+            game.found_bonus_fields.clear();
+            game.updated_at = DateTime::now();
 
-    let next_song = {
-        let mut guard = state.current_game().write().await;
-        let game = unwrap_current_game_mut(&mut guard)?;
-        game.current_song_index = next_index;
-        game.found_point_fields.clear();
-        game.found_bonus_fields.clear();
-        game.updated_at = DateTime::now();
-        if let Some(target_index) = next_index {
-            Some(song_summary(game, target_index)?)
-        } else {
-            None
-        }
-    };
+            if let Some(index) = next_index {
+                let (song_id, song) = game.get_song(index).ok_or_else(|| {
+                    ServiceError::InvalidState("song not found in playlist".into())
+                })?;
+                Some((song_id, song).into())
+            } else {
+                if start {
+                    return Err(ServiceError::InvalidState("No song in playlist".into()));
+                };
+                None
+            }
+        };
 
-    persist_current_game(state).await?;
-
-    Ok(NextSongResponse {
-        finished: next_song.is_none(),
-        song: next_song,
+        persist_current_game(state).await?;
+        Ok(summary)
     })
+    .await
 }
 
 /// Stop the running game early, capture standings, and persist them.
 pub async fn stop_game(state: &SharedState) -> Result<StopGameResponse, ServiceError> {
-    sse_events::apply_and_broadcast_event(state, GameEvent::Finish(FinishReason::ManualStop))
-        .await?;
-    let teams = {
-        let mut guard = state.current_game().write().await;
-        let game = unwrap_current_game_mut(&mut guard)?;
-        game.current_song_index = None;
-        game.found_point_fields.clear();
-        game.found_bonus_fields.clear();
-        game.updated_at = DateTime::now();
-        game.players.iter().cloned().map(Into::into).collect()
-    };
-    persist_current_game(state).await?;
-    Ok(StopGameResponse { teams })
+    run_transition_with_broadcast(
+        state,
+        GameEvent::Finish(FinishReason::ManualStop),
+        move || async move {
+            let teams = {
+                let mut guard = state.current_game().write().await;
+                let game = unwrap_current_game_mut(&mut guard)?;
+                game.current_song_index = None;
+                game.found_point_fields.clear();
+                game.found_bonus_fields.clear();
+                game.updated_at = DateTime::now();
+                game.players
+                    .iter()
+                    .cloned()
+                    .map(TeamSummary::from)
+                    .collect::<Vec<_>>()
+            };
+
+            persist_current_game(state).await?;
+            Ok(StopGameResponse { teams })
+        },
+    )
+    .await
 }
 
 /// Clean up any remaining shared state after the game is complete.
 pub async fn end_game(state: &SharedState) -> Result<ActionResponse, ServiceError> {
-    sse_events::apply_and_broadcast_event(state, GameEvent::EndGame).await?;
-    {
+    run_transition_with_broadcast(state, GameEvent::EndGame, move || async move {
         let mut guard = state.current_game().write().await;
         guard.take();
-    }
-    Ok(ActionResponse {
-        message: "ended".into(),
+        Ok(ActionResponse {
+            message: "ended".into(),
+        })
     })
+    .await
 }
+
+// ---------------------------------------------------------------------------
+// Gameplay adjustments that do not alter the state machine
+// ---------------------------------------------------------------------------
 
 /// Register a discovered field and broadcast the updated state to clients.
 pub async fn mark_field_found(
     state: &SharedState,
     request: MarkFieldRequest,
 ) -> Result<FieldsFoundResponse, ServiceError> {
-    let running_phase = ensure_running_phase(state).await?;
+    let phase = state.state_machine_phase().await;
+    let running_phase = ensure_running_phase(phase)?;
     if matches!(running_phase, GameRunningPhase::Prep) {
         return Err(ServiceError::InvalidState(
             "cannot mark fields during preparation".into(),
         ));
     }
 
-    let (response, song_id) = {
+    let response = {
         let mut guard = state.current_game().write().await;
         let game = unwrap_current_game_mut(&mut guard)?;
+
         let index = game
             .current_song_index
             .ok_or_else(|| ServiceError::InvalidState("no active song".into()))?;
-        let song_id = *game
+        let expected_song_id = *game
             .playlist_song_order
             .get(index)
             .ok_or_else(|| ServiceError::InvalidState("song index out of bounds".into()))?;
-        if song_id != request.song_id {
-            return Err(ServiceError::InvalidState(
-                "given song ID does not correspond to the current song of the game".into(),
+        if expected_song_id != request.song_id {
+            return Err(ServiceError::InvalidInput(
+                "song id does not match the current song".into(),
             ));
         }
+
         let song = game
             .playlist
             .songs
-            .get(&song_id)
+            .get(&request.song_id)
             .ok_or_else(|| ServiceError::InvalidState("song not found".into()))?;
 
         match request.kind {
@@ -342,18 +358,18 @@ pub async fn mark_field_found(
             }
         }
 
-        let response = FieldsFoundResponse {
-            song_id: song_id,
+        FieldsFoundResponse {
+            song_id: request.song_id,
             point_fields: game.found_point_fields.clone(),
             bonus_fields: game.found_bonus_fields.clone(),
-        };
-
-        (response, song_id)
+        }
     };
+
+    persist_current_game(state).await?;
 
     sse_events::broadcast_fields_found(
         state,
-        song_id,
+        response.song_id,
         &response.point_fields,
         &response.bonus_fields,
     );
@@ -366,9 +382,8 @@ pub async fn validate_answer(
     state: &SharedState,
     request: AnswerValidationRequest,
 ) -> Result<ActionResponse, ServiceError> {
-    let running_phase = ensure_running_phase(state).await?;
-    match running_phase {
-        GameRunningPhase::Paused(_) => {
+    match state.state_machine_phase().await {
+        GamePhase::GameRunning(GameRunningPhase::Paused(_)) => {
             sse_events::broadcast_answer_validation(state, request.valid);
             Ok(ActionResponse {
                 message: "answered".into(),
@@ -380,12 +395,12 @@ pub async fn validate_answer(
     }
 }
 
-/// Adjust a team's score manually and propagate the change.
 pub async fn adjust_score(
     state: &SharedState,
     request: ScoreAdjustmentRequest,
 ) -> Result<ScoreUpdateResponse, ServiceError> {
-    ensure_running_phase(state).await?;
+    let phase = state.state_machine_phase().await;
+    ensure_running_phase(phase)?;
 
     let updated_player = {
         let mut guard = state.current_game().write().await;

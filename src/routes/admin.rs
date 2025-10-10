@@ -103,7 +103,7 @@ pub async fn load_game(
 /// Create a bespoke game definition under admin control.
 #[utoipa::path(
     post,
-    path = "/admin/games",
+    path = "/admin/games/with-playlist",
     tag = "admin",
     request_body = CreateGameWithPlaylistRequest,
     responses((status = 200, description = "Game created", body = GameSummary))
@@ -118,7 +118,7 @@ pub async fn create_game_with_playlist(
 /// Generate a game using an existing playlist as the source material.
 #[utoipa::path(
     post,
-    path = "/admin/games/from-playlist",
+    path = "/admin/games",
     tag = "admin",
     request_body = CreateGameRequest,
     responses((status = 200, description = "Game created from playlist", body = GameSummary))

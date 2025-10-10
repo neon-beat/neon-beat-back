@@ -108,6 +108,14 @@ impl GameSession {
             found_bonus_fields: Vec::new(),
         }
     }
+
+    /// Return the song at the requested playlist index together with its identifier.
+    pub fn get_song(&self, index: usize) -> Option<(u32, Song)> {
+        self.playlist_song_order
+            .get(index)
+            .and_then(|song_id| self.playlist.songs.get(song_id))
+            .map(|entry| (*entry.key(), entry.value().clone()))
+    }
 }
 
 impl Playlist {

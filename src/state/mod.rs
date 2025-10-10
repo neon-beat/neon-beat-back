@@ -1,23 +1,33 @@
 pub mod game;
 mod sse;
 pub mod state_machine;
+pub mod transitions;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::extract::ws::Message;
 use dashmap::DashMap;
 use tokio::sync::{Mutex, RwLock, mpsc, watch};
+use tokio::time::timeout;
 use tracing::warn;
 
-use crate::{dao::mongodb::MongoManager, dto::ws::BuzzFeedback, state::game::GameSession};
+use crate::services::websocket_service::send_message_to_websocket;
+use crate::{
+    dao::mongodb::MongoManager,
+    dto::ws::BuzzFeedback,
+    error::ServiceError,
+    state::{game::GameSession, state_machine::GamePhase},
+};
 
 pub use self::sse::SseHub;
+pub use self::state_machine::{AbortError, ApplyError, Plan, PlanError, PlanId, Snapshot};
 use self::{
     sse::SseState,
-    state_machine::{GameEvent, GamePhase, GameStateMachine, InvalidTransition},
+    state_machine::{GameEvent, GameStateMachine},
 };
 
 pub type SharedState = Arc<AppState>;
+pub const DEFAULT_TRANSITION_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 /// Handle used to push messages to a connected buzzer.
@@ -34,6 +44,8 @@ pub struct AppState {
     game: RwLock<GameStateMachine>,
     current_game: RwLock<Option<GameSession>>,
     degraded: watch::Sender<bool>,
+    transition_gate: Mutex<()>,
+    transition_timeout: Option<Duration>,
 }
 
 impl AppState {
@@ -50,6 +62,8 @@ impl AppState {
             game: RwLock::new(GameStateMachine::new()),
             current_game: RwLock::new(None),
             degraded: degraded_tx,
+            transition_gate: Mutex::new(()),
+            transition_timeout: Some(DEFAULT_TRANSITION_TIMEOUT),
         })
     }
 
@@ -108,9 +122,9 @@ impl AppState {
         &self.buzzers
     }
 
-    /// Shared game state machine guarding gameplay transitions.
-    pub fn game(&self) -> &RwLock<GameStateMachine> {
-        &self.game
+    /// Snapshot the current phase of the shared game state machine.
+    pub async fn state_machine_phase(&self) -> GamePhase {
+        self.game.read().await.phase()
     }
 
     /// Currently active game session data.
@@ -127,12 +141,81 @@ impl AppState {
         let _ = self.degraded.send(value);
     }
 
-    /// Apply an event to the shared game state machine, returning the previous and next phase.
-    pub async fn apply_game_event(&self, event: GameEvent) -> Result<GamePhase, InvalidTransition> {
+    /// Plan a transition to the shared game state machine, returning the plan.
+    async fn plan_transition(&self, event: GameEvent) -> Result<Plan, PlanError> {
         let mut sm = self.game.write().await;
-        let next = sm.apply(event)?;
-        drop(sm);
-        Ok(next)
+        sm.plan(event)
+    }
+
+    /// Apply the planned transition to the shared game state machine, returning the next phase.
+    async fn apply_planned_transition(&self, plan_id: PlanId) -> Result<GamePhase, ApplyError> {
+        let mut sm = self.game.write().await;
+        sm.apply(plan_id)
+    }
+
+    /// Abort a planned transition of the shared game state machine
+    async fn abort_transition(&self, plan_id: PlanId) -> Result<(), AbortError> {
+        let mut sm = self.game.write().await;
+        sm.abort(plan_id)
+    }
+
+    pub async fn snapshot(&self) -> Snapshot {
+        let sm = self.game.read().await;
+        sm.snapshot()
+    }
+
+    pub async fn run_transition<F, Fut, T>(
+        &self,
+        event: GameEvent,
+        work: F,
+    ) -> Result<(T, GamePhase), ServiceError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<T, ServiceError>>,
+    {
+        let gate = self.transition_gate.lock().await;
+        let Plan { id: plan_id, .. } = self.plan_transition(event.clone()).await?;
+
+        let work_future = work();
+        let outcome = if let Some(limit) = self.transition_timeout {
+            match timeout(limit, work_future).await {
+                Ok(result) => result,
+                Err(_) => {
+                    if let Err(abort_err) = self.abort_transition(plan_id).await {
+                        warn!(
+                            event = ?event,
+                            plan_id = %plan_id,
+                            error = ?abort_err,
+                            "failed to abort transition after timeout"
+                        );
+                    }
+                    drop(gate);
+                    return Err(ServiceError::Timeout);
+                }
+            }
+        } else {
+            work_future.await
+        };
+
+        match outcome {
+            Ok(value) => {
+                let next = self.apply_planned_transition(plan_id).await?;
+                drop(gate);
+                Ok((value, next))
+            }
+            Err(err) => {
+                if let Err(abort_err) = self.abort_transition(plan_id).await {
+                    warn!(
+                        event = ?event,
+                        plan_id = %plan_id,
+                        error = ?abort_err,
+                        "failed to abort transition after work error"
+                    );
+                }
+                drop(gate);
+                Err(err)
+            }
+        }
     }
 
     pub fn notify_buzzer_turn_finished(&self, buzzer_id: &str) {
@@ -143,13 +226,13 @@ impl AppState {
         let tx = connection.tx.clone();
         drop(connection);
 
-        if let Ok(payload) = serde_json::to_string(&BuzzFeedback {
-            id: buzzer_id.into(),
-            can_answer: false,
-        }) {
-            if let Err(err) = tx.send(Message::Text(payload.into())) {
-                warn!(id = %buzzer_id, error = %err, "failed to notify buzzer turn ended");
-            }
-        }
+        send_message_to_websocket(
+            &tx,
+            &BuzzFeedback {
+                id: buzzer_id.into(),
+                can_answer: false,
+            },
+            "buzzer turn ended",
+        );
     }
 }

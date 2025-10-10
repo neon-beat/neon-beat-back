@@ -7,13 +7,13 @@ use tracing::{info, warn};
 
 use crate::{
     dto::ws::{BuzzFeedback, BuzzerAck, BuzzerInboundMessage},
+    error::ServiceError,
     state::{
         BuzzerConnection, SharedState,
-        state_machine::{GameEvent, GamePhase, GameRunningPhase, PauseKind},
+        state_machine::{GameEvent, PauseKind},
+        transitions::run_transition_with_broadcast,
     },
 };
-
-use super::sse_events::apply_and_broadcast_event;
 
 const IDENT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -89,12 +89,14 @@ pub async fn handle_socket(state: SharedState, socket: WebSocket) {
 
     info!(id = %buzzer_id, "buzzer connected");
 
-    if let Ok(payload) = serde_json::to_string(&BuzzerAck {
-        id: buzzer_id.clone(),
-        status: "ready".to_string(),
-    }) {
-        let _ = outbound_tx.send(Message::Text(payload.into()));
-    }
+    send_message_to_websocket(
+        &outbound_tx,
+        &BuzzerAck {
+            id: buzzer_id.clone(),
+            status: "ready".to_string(),
+        },
+        "buzzer ack",
+    );
 
     while let Some(message) = receiver.next().await {
         match message {
@@ -103,17 +105,26 @@ pub async fn handle_socket(state: SharedState, socket: WebSocket) {
 
                 match serde_json::from_str::<BuzzerInboundMessage>(&text) {
                     Ok(BuzzerInboundMessage::Buzz { id }) => {
-                        let can_answer = if id == buzzer_id {
+                        let res = if id == buzzer_id {
                             handle_buzz(&state, &id).await
                         } else {
-                            warn!(expected = %buzzer_id, got = %id, "buzz ignored: mismatched id");
-                            false
+                            Err(ServiceError::InvalidState(format!(
+                                "Buzz ignored: mismatched ID (expected {buzzer_id}, got {id})"
+                            )))
                         };
 
-                        if let Ok(payload) = serde_json::to_string(&BuzzFeedback { id, can_answer })
-                        {
-                            let _ = outbound_tx.send(Message::Text(payload.into()));
-                        }
+                        let can_answer = res.is_ok();
+                        if let Err(err) = res {
+                            warn!(
+                                error = %err,
+                                "Error while handling buzz (form ID {id})",
+                            );
+                        };
+                        send_message_to_websocket(
+                            &outbound_tx,
+                            &BuzzFeedback { id, can_answer },
+                            "buzzer feedback",
+                        );
                     }
                     Ok(BuzzerInboundMessage::Identification { .. }) => {
                         warn!(id = %buzzer_id, "ignoring duplicate identification message");
@@ -146,8 +157,26 @@ pub async fn handle_socket(state: SharedState, socket: WebSocket) {
     finalize(writer_task, outbound_tx).await;
 }
 
+/// Serialize a payload and push it onto the provided WebSocket sender, logging failures.
+pub fn send_message_to_websocket<T>(
+    tx: &mpsc::UnboundedSender<Message>,
+    value: &T,
+    message_type: &str,
+) where
+    T: ?Sized + serde::Serialize,
+{
+    match serde_json::to_string(value) {
+        Ok(payload) => {
+            if tx.send(Message::Text(payload.into())).is_err() {
+                warn!("websocket writer closed while sending {message_type}");
+            }
+        }
+        Err(err) => warn!(error = %err, "failed to serialize {message_type}"),
+    }
+}
+
 /// Process a buzz coming from a buzzer connection, returning whether the team can answer.
-pub async fn handle_buzz(state: &SharedState, buzzer_id: &str) -> bool {
+pub async fn handle_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), ServiceError> {
     let player_known = {
         let guard = state.current_game().read().await;
         guard.as_ref().is_some_and(|game| {
@@ -158,30 +187,19 @@ pub async fn handle_buzz(state: &SharedState, buzzer_id: &str) -> bool {
     };
 
     if !player_known {
-        warn!(id = %buzzer_id, "buzz ignored: unknown buzzer");
-        return false;
+        return Err(ServiceError::InvalidState(format!(
+            "Buzz ignored: unknown buzzer ID `{buzzer_id}`"
+        )));
     }
 
-    match apply_and_broadcast_event(
+    run_transition_with_broadcast(
         state,
         GameEvent::Pause(PauseKind::Buzz {
-            id: buzzer_id.to_string(),
+            id: buzzer_id.into(),
         }),
+        move || async move { Ok(()) },
     )
     .await
-    {
-        Ok(next) => match next {
-            GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { .. })) => true,
-            phase => {
-                warn!(id = %buzzer_id, ?phase, "buzz produced unexpected phase");
-                false
-            }
-        },
-        Err(err) => {
-            warn!(id = %buzzer_id, error = %err, "buzz ignored: invalid transition");
-            false
-        }
-    }
 }
 
 /// Buzzer identifiers must be 12 lowercase hexadecimal characters with no separators.

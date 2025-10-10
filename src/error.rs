@@ -2,7 +2,10 @@ use axum::{Json, http::StatusCode, response::IntoResponse};
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::dao::mongodb::MongoDaoError;
+use crate::{
+    dao::mongodb::MongoDaoError,
+    state::{AbortError, ApplyError, PlanError},
+};
 
 #[derive(Debug, Error)]
 pub enum ServiceError {
@@ -18,6 +21,8 @@ pub enum ServiceError {
     InvalidState(String),
     #[error("not found: {0}")]
     NotFound(String),
+    #[error("operation timed out")]
+    Timeout,
 }
 
 impl From<MongoDaoError> for ServiceError {
@@ -63,6 +68,9 @@ impl From<ServiceError> for AppError {
             ServiceError::InvalidInput(message) => AppError::BadRequest(message),
             ServiceError::InvalidState(message) => AppError::Conflict(message),
             ServiceError::NotFound(message) => AppError::NotFound(message),
+            ServiceError::Timeout => {
+                AppError::ServiceUnavailable("operation timed out".into())
+            }
         }
     }
 }
@@ -88,5 +96,48 @@ impl IntoResponse for AppError {
         });
 
         (status, payload).into_response()
+    }
+}
+
+impl From<PlanError> for ServiceError {
+    fn from(err: PlanError) -> Self {
+        match err {
+            PlanError::AlreadyPending => {
+                ServiceError::InvalidState("state transition already pending".into())
+            }
+            PlanError::InvalidTransition(invalid) => {
+                ServiceError::InvalidState(invalid.to_string())
+            }
+        }
+    }
+}
+
+impl From<ApplyError> for ServiceError {
+    fn from(err: ApplyError) -> Self {
+        match err {
+            ApplyError::NoPending => ServiceError::InvalidState("no transition is pending".into()),
+            ApplyError::IdMismatch { .. } => {
+                ServiceError::InvalidState("pending transition does not match".into())
+            }
+            ApplyError::PhaseMismatch { expected, actual } => ServiceError::InvalidState(format!(
+                "state changed during transition (expected {expected:?}, got {actual:?})"
+            )),
+            ApplyError::VersionMismatch { expected, actual } => {
+                ServiceError::InvalidState(format!(
+                    "state version mismatch during transition (expected {expected}, got {actual})"
+                ))
+            }
+        }
+    }
+}
+
+impl From<AbortError> for ServiceError {
+    fn from(err: AbortError) -> Self {
+        match err {
+            AbortError::NoPending => ServiceError::InvalidState("no pending transition".into()),
+            AbortError::IdMismatch { .. } => {
+                ServiceError::InvalidState("transition plan does not match".into())
+            }
+        }
     }
 }

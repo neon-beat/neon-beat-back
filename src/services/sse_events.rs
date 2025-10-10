@@ -37,7 +37,7 @@ pub fn broadcast_fields_found(
     bonus_fields: &[String],
 ) {
     let payload = FieldsFoundEvent {
-        song_id: song_id,
+        song_id,
         point_fields: point_fields.to_vec(),
         bonus_fields: bonus_fields.to_vec(),
     };
@@ -65,19 +65,6 @@ pub async fn broadcast_phase_changed(state: &SharedState, phase: &GamePhase) {
         send_public_event(state, EVENT_PHASE_CHANGED, &snapshot);
         send_admin_event(state, EVENT_PHASE_CHANGED, &snapshot);
     }
-}
-
-/// Apply an event to the state machine and broadcast the resulting phase change.
-pub async fn apply_and_broadcast_event(
-    state: &SharedState,
-    event: GameEvent,
-) -> Result<GamePhase, ServiceError> {
-    let next = state
-        .apply_game_event(event)
-        .await
-        .map_err(|err| ServiceError::InvalidState(err.to_string()))?;
-    broadcast_phase_changed(state, &next).await;
-    Ok(next)
 }
 
 fn players_to_summaries(players: &[Player]) -> Vec<TeamSummary> {
