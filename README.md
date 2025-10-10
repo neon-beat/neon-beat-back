@@ -82,7 +82,7 @@ stateDiagram-v2
    - During game bootstrap the playlist song order is shuffled once to create a random play sequence; persisted games must provide the same identifiers to guarantee consistency.
 - **Game bootstrap**: Game can be created or loaded (from database) during the idle state:
    - the game contains a list of players (players have a unique buzzer, a name and a score)
-   - the game references a persisted playlist entity (shared across games) which is embedded into the runtime session when the game starts
+   - the game references a persisted playlist entity (shared across games) which is embedded into the runtime session when the game starts [**WARNING**: the game considers currently that the playlist doesn't change !]
    - the game contains a game state (frequently saved in database), which contains a playlist state (the playlist state remembers whether a song has been played or not) and must match the playlist identifiers exactly
 - **State machine execution**: Gameplay transitions follow the diagram above (`Game state flow`), persisting progress and orchestrating pauses, reveals, and scoring.
 - **Admin controls (REST)**:
@@ -213,7 +213,6 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Raise an error if the playlist is empty during GameSession/Playlist creation/loading
 - [x] Add song ID to MarkFieldRequest
 - [x] Implement a transaction system for state machine (prepare, to know if it is possible, then apply the waiting transaction when we have finished the processing)
-- [ ] Save last_finish_reason for the game in DB
 - [ ] Migrate from MongoDB to CouchDB
 - [ ] Implement public routes:
    - [ ] get teams/players
@@ -242,4 +241,3 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - Do we want to add a timeout when a player has buzzed (to resume the game) ? Add an int config property (default: Infinite)
 - Do we want to prevent the previous buzzer to buzz again ? Add a bool config property (default: re-buzz authorized)
 - Do we want to serve the OpenAPI documentation as a Github Page ?
-

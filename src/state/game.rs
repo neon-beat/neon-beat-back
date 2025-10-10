@@ -103,7 +103,7 @@ impl GameSession {
             players,
             playlist,
             playlist_song_order,
-            current_song_index: None,
+            current_song_index: Some(0),
             found_point_fields: Vec::new(),
             found_bonus_fields: Vec::new(),
         }

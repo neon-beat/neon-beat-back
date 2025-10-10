@@ -97,6 +97,9 @@ pub async fn create_game(
     }
 
     let game = GameSession::new(name, players, playlist);
+    if game.playlist_song_order.is_empty() {
+        panic!("playlist_song_order should not be empty")
+    };
 
     repository.save(game.clone().into()).await?;
     {
@@ -134,6 +137,9 @@ pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, Ser
             "playlist must contain at least one song".into(),
         ));
     }
+    if game.playlist_song_order.is_empty() {
+        panic!("playlist_song_order should not be empty")
+    };
 
     validate_persisted_game(&game, &playlist)?;
 

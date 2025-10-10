@@ -218,21 +218,32 @@ async fn load_next_song(
     state: &SharedState,
     start: bool,
 ) -> Result<Option<SongSummary>, ServiceError> {
-    let (event, next_index) = if start {
-        (GameEvent::GameConfigured, Some(0))
-    } else {
+    let (current_song_index, playlist_length) = {
         let guard = state.current_game().read().await;
         let game = guard
             .as_ref()
             .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
-        let current = game
-            .current_song_index
+        (game.current_song_index, game.playlist_song_order.len())
+    };
+    let next_song_index = if start {
+        current_song_index
+    } else {
+        let next_song_index = current_song_index
+            .map(|i| i + 1)
             .ok_or_else(|| ServiceError::InvalidState("no active song".into()))?;
-        let len = game.playlist_song_order.len();
-        if current + 1 < len {
-            (GameEvent::NextSong, Some(current + 1))
+        if next_song_index < playlist_length {
+            Some(next_song_index)
         } else {
-            (GameEvent::Finish(FinishReason::PlaylistCompleted), None)
+            None
+        }
+    };
+    let event = if start {
+        GameEvent::GameConfigured
+    } else {
+        if next_song_index.is_some() {
+            GameEvent::NextSong
+        } else {
+            GameEvent::Finish(FinishReason::PlaylistCompleted)
         }
     };
 
@@ -240,20 +251,17 @@ async fn load_next_song(
         let summary = {
             let mut guard = state.current_game().write().await;
             let game = unwrap_current_game_mut(&mut guard)?;
-            game.current_song_index = next_index;
+            game.current_song_index = next_song_index;
             game.found_point_fields.clear();
             game.found_bonus_fields.clear();
             game.updated_at = DateTime::now();
 
-            if let Some(index) = next_index {
+            if let Some(index) = next_song_index {
                 let (song_id, song) = game.get_song(index).ok_or_else(|| {
                     ServiceError::InvalidState("song not found in playlist".into())
                 })?;
                 Some((song_id, song).into())
             } else {
-                if start {
-                    return Err(ServiceError::InvalidState("No song in playlist".into()));
-                };
                 None
             }
         };
