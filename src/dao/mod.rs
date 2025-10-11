@@ -1,6 +1,3 @@
-pub mod game;
+pub mod game_store;
 pub mod models;
-pub mod mongodb;
 pub mod storage;
-
-pub use storage::StorageError;

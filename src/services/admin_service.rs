@@ -6,7 +6,7 @@ use std::{sync::Arc, time::SystemTime};
 use uuid::Uuid;
 
 use crate::{
-    dao::game::GameStore,
+    dao::game_store::GameStore,
     dto::{
         admin::{
             ActionResponse, AnswerValidationRequest, CreateGameRequest, FieldKind,

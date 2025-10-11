@@ -13,7 +13,7 @@ use tracing::warn;
 
 use crate::services::websocket_service::send_message_to_websocket;
 use crate::{
-    dao::game::GameStore,
+    dao::game_store::GameStore,
     dto::ws::BuzzFeedback,
     error::ServiceError,
     state::{game::GameSession, state_machine::GamePhase},

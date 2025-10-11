@@ -4,7 +4,7 @@ use tokio::time::sleep;
 use tracing::{info, warn};
 
 use crate::{
-    dao::{game::GameStore, storage::StorageError},
+    dao::{game_store::GameStore, storage::StorageError},
     state::SharedState,
 };
 
@@ -13,10 +13,8 @@ const MAX_DELAY: Duration = Duration::from_secs(10);
 const HEALTH_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Reconnect to the storage backend and keep the shared state in degraded mode when it is unavailable.
-pub async fn run<F, Fut>(
-    state: SharedState,
-    mut connect: F,
-) where
+pub async fn run<F, Fut>(state: SharedState, mut connect: F)
+where
     F: FnMut() -> Fut + Send + 'static,
     Fut: Future<Output = Result<Arc<dyn GameStore>, StorageError>> + Send,
 {

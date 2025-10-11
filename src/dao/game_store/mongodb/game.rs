@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::dao::{
-    game::GameStore,
+    game_store::GameStore,
     models::{GameEntity, PlayerEntity, PlaylistEntity},
     storage::{StorageError, StorageResult},
 };

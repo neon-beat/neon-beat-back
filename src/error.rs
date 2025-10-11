@@ -3,7 +3,7 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::{
-    dao::StorageError,
+    dao::storage::StorageError,
     state::{AbortError, ApplyError, PlanError},
 };
 

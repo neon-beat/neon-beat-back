@@ -1,3 +1,6 @@
+pub mod couchdb;
+pub mod mongodb;
+
 use crate::dao::models::{GameEntity, PlaylistEntity};
 use crate::dao::storage::StorageResult;
 use futures::future::BoxFuture;

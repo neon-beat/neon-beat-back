@@ -16,8 +16,8 @@ mod routes;
 mod services;
 mod state;
 
-use dao::{
-    game::GameStore,
+use dao::game_store::{
+    GameStore,
     mongodb::{MongoGameStore, connect, ensure_indexes},
 };
 use services::storage_supervisor;
