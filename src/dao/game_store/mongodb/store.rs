@@ -1,11 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use futures::{TryStreamExt, future::BoxFuture};
-use mongodb::{
-    Client, Collection, Database,
-    bson::doc,
-    options::{ClientOptions, IndexOptions},
-};
+use mongodb::{Client, Collection, Database, bson::doc, options::IndexOptions};
 use tokio::{
     sync::RwLock,
     time::{MissedTickBehavior, interval},
@@ -14,6 +10,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::{
+    config::MongoConfig,
     error::{MongoDaoError, MongoResult},
     models::{MongoGameDocument, doc_id},
 };
@@ -25,13 +22,16 @@ use crate::dao::{
 
 const GAME_COLLECTION_NAME: &str = "games";
 const PLAYLIST_COLLECTION_NAME: &str = "playlists";
-const DEFAULT_DB: &str = "neon_beat";
 const HEALTH_CHECK_INTERVAL_SECS: u64 = 30;
 
 #[derive(Clone)]
 pub struct MongoGameStore {
-    state: Arc<RwLock<MongoState>>,
-    config: Arc<MongoConfig>,
+    inner: Arc<MongoInner>,
+}
+
+struct MongoInner {
+    state: RwLock<MongoState>,
+    config: MongoConfig,
 }
 
 struct MongoState {
@@ -39,31 +39,18 @@ struct MongoState {
     database: Database,
 }
 
-struct MongoConfig {
-    options: ClientOptions,
-    database_name: String,
-}
-
 impl MongoGameStore {
     /// Establish a connection to MongoDB and ensure indexes are present.
-    pub async fn connect(uri: &str, db_name: Option<&str>) -> MongoResult<Self> {
-        let database_name = db_name.unwrap_or(DEFAULT_DB).to_owned();
-        let options =
-            ClientOptions::parse(uri)
-                .await
-                .map_err(|source| MongoDaoError::InvalidUri {
-                    uri: uri.to_owned(),
-                    source,
-                })?;
+    pub async fn connect(config: MongoConfig) -> MongoResult<Self> {
+        let (client, database) =
+            establish_connection(&config.options, &config.database_name).await?;
 
-        let (client, database) = establish_connection(&options, &database_name).await?;
-        let state = Arc::new(RwLock::new(MongoState { client, database }));
-        let config = Arc::new(MongoConfig {
-            options,
-            database_name,
+        let inner = Arc::new(MongoInner {
+            state: RwLock::new(MongoState { client, database }),
+            config,
         });
-        let store = Self { state, config };
 
+        let store = Self { inner };
         store.ensure_indexes().await?;
         store.spawn_health_task();
         Ok(store)
@@ -94,19 +81,19 @@ impl MongoGameStore {
     }
 
     async fn database(&self) -> Database {
-        let guard = self.state.read().await;
+        let guard = self.inner.state.read().await;
         guard.database.clone()
     }
 
     async fn collection(&self) -> Collection<MongoGameDocument> {
-        let guard = self.state.read().await;
+        let guard = self.inner.state.read().await;
         guard
             .database
             .collection::<MongoGameDocument>(GAME_COLLECTION_NAME)
     }
 
     async fn playlist_collection(&self) -> Collection<PlaylistEntity> {
-        let guard = self.state.read().await;
+        let guard = self.inner.state.read().await;
         guard
             .database
             .collection::<PlaylistEntity>(PLAYLIST_COLLECTION_NAME)
@@ -198,7 +185,7 @@ impl MongoGameStore {
             .collect())
     }
 
-    async fn ping_once(state: &Arc<RwLock<MongoState>>) -> MongoResult<()> {
+    async fn ping_once(state: &RwLock<MongoState>) -> MongoResult<()> {
         let database = {
             let guard = state.read().await;
             guard.database.clone()
@@ -211,21 +198,17 @@ impl MongoGameStore {
         Ok(())
     }
 
-    async fn reconnect(
-        state: &Arc<RwLock<MongoState>>,
-        options: &ClientOptions,
-        database_name: &str,
-    ) -> MongoResult<()> {
-        let (client, database) = establish_connection(options, database_name).await?;
-        let mut guard = state.write().await;
+    async fn reconnect(inner: &MongoInner) -> MongoResult<()> {
+        let (client, database) =
+            establish_connection(&inner.config.options, &inner.config.database_name).await?;
+        let mut guard = inner.state.write().await;
         guard.client = client;
         guard.database = database;
         Ok(())
     }
 
     fn spawn_health_task(&self) {
-        let state = Arc::downgrade(&self.state);
-        let config = self.config.clone();
+        let inner = Arc::downgrade(&self.inner);
 
         tokio::spawn(async move {
             let mut ticker = interval(Duration::from_secs(HEALTH_CHECK_INTERVAL_SECS));
@@ -234,14 +217,13 @@ impl MongoGameStore {
             loop {
                 ticker.tick().await;
 
-                let Some(state_arc) = state.upgrade() else {
+                let Some(inner) = inner.upgrade() else {
                     break;
                 };
 
-                if let Err(err) = Self::ping_once(&state_arc).await {
+                if let Err(err) = Self::ping_once(&inner.state).await {
                     warn!(error = %err, "MongoDB health check failed; attempting reconnect");
-                    match Self::reconnect(&state_arc, &config.options, &config.database_name).await
-                    {
+                    match Self::reconnect(&inner).await {
                         Ok(()) => info!("MongoDB connection re-established"),
                         Err(err) => warn!(error = %err, "failed to reconnect to MongoDB"),
                     }
@@ -251,7 +233,7 @@ impl MongoGameStore {
     }
 
     async fn ping(&self) -> MongoResult<()> {
-        Self::ping_once(&self.state).await
+        Self::ping_once(&self.inner.state).await
     }
 }
 

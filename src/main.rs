@@ -16,7 +16,10 @@ mod routes;
 mod services;
 mod state;
 
-use dao::game_store::{GameStore, mongodb::MongoGameStore};
+use dao::game_store::{
+    GameStore,
+    mongodb::{MongoConfig, MongoGameStore},
+};
 use services::storage_supervisor;
 use state::AppState;
 
@@ -24,22 +27,10 @@ use state::AppState;
 async fn main() -> anyhow::Result<()> {
     init_tracing();
 
-    let mongo_uri = env::var("MONGO_URI").unwrap_or_else(|_| "mongodb://localhost:27017".into());
-    let mongo_db = env::var("MONGO_DB").ok();
-
     let app_state = AppState::new();
 
-    tokio::spawn(storage_supervisor::run(app_state.clone(), {
-        move || {
-            let uri = mongo_uri.clone();
-            let db = mongo_db.clone();
-            async move {
-                let store = MongoGameStore::connect(&uri, db.as_deref()).await?;
-                let store_arc: Arc<dyn GameStore> = Arc::new(store);
-                Ok(store_arc)
-            }
-        }
-    }));
+    spawn_mongo_supervisor(app_state.clone()).await?;
+
     // Build the HTTP router once the shared state is ready.
     let app = build_router(app_state);
 
@@ -58,6 +49,24 @@ async fn main() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .context("serving axum")?;
+
+    Ok(())
+}
+
+async fn spawn_mongo_supervisor(state: Arc<AppState>) -> anyhow::Result<()> {
+    let uri = env::var("MONGO_URI").unwrap_or_else(|_| "mongodb://localhost:27017".into());
+    let db = env::var("MONGO_DB").ok();
+    let config = Arc::new(MongoConfig::from_uri(&uri, db.as_deref()).await?);
+
+    tokio::spawn(storage_supervisor::run(state, {
+        move || {
+            let cfg = config.clone();
+            async move {
+                let store = MongoGameStore::connect((*cfg).clone()).await?;
+                Ok::<Arc<dyn GameStore>, _>(Arc::new(store))
+            }
+        }
+    }));
 
     Ok(())
 }

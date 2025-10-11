@@ -1,8 +1,10 @@
+mod config;
 mod connection;
 mod error;
 mod models;
-pub mod store;
+mod store;
 
+pub use config::MongoConfig;
 pub use error::MongoDaoError;
 pub use store::MongoGameStore;
 
