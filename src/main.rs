@@ -16,10 +16,7 @@ mod routes;
 mod services;
 mod state;
 
-use dao::game_store::{
-    GameStore,
-    mongodb::{MongoGameStore, connect, ensure_indexes},
-};
+use dao::game_store::{GameStore, mongodb::MongoGameStore};
 use services::storage_supervisor;
 use state::AppState;
 
@@ -37,11 +34,9 @@ async fn main() -> anyhow::Result<()> {
             let uri = mongo_uri.clone();
             let db = mongo_db.clone();
             async move {
-                let manager = connect(&uri, db.as_deref()).await?;
-                let database = manager.database().await;
-                ensure_indexes(&database).await?;
-                let store: Arc<dyn GameStore> = Arc::new(MongoGameStore::new(manager));
-                Ok(store)
+                let store = MongoGameStore::connect(&uri, db.as_deref()).await?;
+                let store_arc: Arc<dyn GameStore> = Arc::new(store);
+                Ok(store_arc)
             }
         }
     }));

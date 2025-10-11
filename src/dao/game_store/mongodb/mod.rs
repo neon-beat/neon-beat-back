@@ -1,7 +1,15 @@
-pub mod error;
-pub mod game;
-pub mod manager;
+mod connection;
+mod error;
+mod models;
+pub mod store;
 
 pub use error::MongoDaoError;
-pub use game::MongoGameStore;
-pub use manager::{MongoManager, connect, ensure_indexes};
+pub use store::MongoGameStore;
+
+use crate::dao::storage::StorageError;
+
+impl From<MongoDaoError> for StorageError {
+    fn from(err: MongoDaoError) -> Self {
+        StorageError::unavailable(err.to_string(), err)
+    }
+}

@@ -2,7 +2,7 @@ use mongodb::error::Error as MongoError;
 use thiserror::Error;
 use uuid::Uuid;
 
-pub type Result<T> = std::result::Result<T, MongoDaoError>;
+pub type MongoResult<T> = std::result::Result<T, MongoDaoError>;
 
 #[derive(Debug, Error)]
 pub enum MongoDaoError {
