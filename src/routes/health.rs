@@ -7,7 +7,7 @@ use crate::{dto::health::HealthResponse, services::health_service, state::Shared
     path = "/healthcheck",
     responses((status = 200, description = "Service is healthy", body = HealthResponse))
 )]
-/// Return the current health status of the backend and ping MongoDB.
+/// Return the current health status of the backend and ping the storage backend.
 pub async fn healthcheck(State(state): State<SharedState>) -> Json<HealthResponse> {
     let status = health_service::health_status(&state).await;
     Json(status)

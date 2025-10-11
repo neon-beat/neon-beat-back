@@ -4,10 +4,7 @@ use dashmap::DashMap;
 use uuid::Uuid;
 
 use crate::{
-    dao::{
-        game::GameRepository,
-        models::{GameEntity, PlaylistEntity},
-    },
+    dao::models::{GameEntity, PlaylistEntity},
     dto::game::{GameSummary, PlayerInput, PlaylistInput, PlaylistSummary, SongInput},
     error::ServiceError,
     services::sse_events,
@@ -40,13 +37,8 @@ pub async fn create_playlist(
     let summary: PlaylistSummary = (playlist.clone(), order).into();
 
     let entity: PlaylistEntity = playlist.clone().into();
-
-    let Some(mongo) = state.mongo().await else {
-        return Err(ServiceError::Degraded);
-    };
-    let repository = GameRepository::new(mongo);
-
-    repository.save_playlist(entity).await?;
+    let store = state.game_store().await.ok_or(ServiceError::Degraded)?;
+    store.save_playlist(entity).await?;
 
     Ok((summary, playlist))
 }
@@ -75,18 +67,12 @@ pub async fn create_game(
 
     let players = build_players(players)?;
 
-    let Some(mongo) = state.mongo().await else {
-        return Err(ServiceError::Degraded);
-    };
-    let repository = GameRepository::new(mongo);
+    let store = state.game_store().await.ok_or(ServiceError::Degraded)?;
 
     let playlist = playlist.unwrap_or({
-        let playlist_entity = repository
-            .find_playlist(playlist_id)
-            .await?
-            .ok_or_else(|| {
-                ServiceError::NotFound(format!("playlist `{}` not found", playlist_id))
-            })?;
+        let playlist_entity = store.find_playlist(playlist_id).await?.ok_or_else(|| {
+            ServiceError::NotFound(format!("playlist `{}` not found", playlist_id))
+        })?;
         playlist_entity.into()
     });
 
@@ -101,7 +87,7 @@ pub async fn create_game(
         panic!("playlist_song_order should not be empty")
     };
 
-    repository.save(game.clone().into()).await?;
+    store.save_game(game.clone().into()).await?;
     {
         let mut slot = state.current_game().write().await;
         *slot = Some(game.clone());
@@ -116,16 +102,13 @@ pub async fn create_game(
 pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, ServiceError> {
     ensure_idle(state).await?;
 
-    let Some(mongo) = state.mongo().await else {
-        return Err(ServiceError::Degraded);
-    };
-    let repository = GameRepository::new(mongo);
+    let store = state.game_store().await.ok_or(ServiceError::Degraded)?;
 
-    let Some(game) = repository.find(id).await? else {
+    let Some(game) = store.find_game(id).await? else {
         return Err(ServiceError::NotFound(format!("game `{id}` not found")));
     };
 
-    let Some(playlist) = repository.find_playlist(game.playlist_id).await? else {
+    let Some(playlist) = store.find_playlist(game.playlist_id).await? else {
         return Err(ServiceError::NotFound(format!(
             "playlist `{}` not found",
             game.playlist_id

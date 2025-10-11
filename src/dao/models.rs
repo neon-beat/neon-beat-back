@@ -1,7 +1,5 @@
-use std::collections::HashMap;
-
-use mongodb::bson::DateTime;
 use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, time::SystemTime};
 use uuid::Uuid;
 
 /// Playlist definition containing a list of songs.
@@ -41,7 +39,7 @@ pub struct PointFieldEntity {
     pub points: u8,
 }
 
-/// Representation of a player stored in MongoDB and shared across layers.
+/// Representation of a player stored in persistence and shared across layers.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PlayerEntity {
     /// Unique buzzer identifier (12 lowercase hexadecimal characters).
@@ -52,18 +50,17 @@ pub struct PlayerEntity {
     pub score: i32,
 }
 
-/// Aggregate game entity stored in MongoDB.
+/// Aggregate game entity persisted by the storage layer.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GameEntity {
     /// Primary key of the game.
-    #[serde(rename = "_id")]
     pub id: Uuid,
     /// Display name of the quiz / round.
     pub name: String,
     /// Creation timestamp for auditing/debugging.
-    pub created_at: DateTime,
+    pub created_at: SystemTime,
     /// Last time the game entity was updated.
-    pub updated_at: DateTime,
+    pub updated_at: SystemTime,
     /// Participating players and their current scores.
     pub players: Vec<PlayerEntity>,
     /// ID of the playlist used in this game session.

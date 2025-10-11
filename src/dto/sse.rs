@@ -29,7 +29,7 @@ pub struct Handshake {
     pub stream: String,
     /// Human-readable message confirming the subscription.
     pub message: String,
-    /// Whether the backend is running without a MongoDB connection.
+    /// Whether the backend is running without a storage backend connection.
     pub degraded: bool,
     /// Optional admin token returned when the stream is privileged.
     #[serde(skip_serializing_if = "Option::is_none")]

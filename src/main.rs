@@ -1,13 +1,12 @@
 //! Neon Beat Back binary entrypoint wiring REST, WebSocket, SSE, and MongoDB layers.
 
-use std::{env, net::SocketAddr, time::Duration};
+use std::{env, net::SocketAddr, sync::Arc};
 
 use anyhow::Context;
 use axum::Router;
 use tokio::net::TcpListener;
-use tokio::time::sleep;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
-use tracing::{error, info, warn};
+use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod dao;
@@ -17,8 +16,12 @@ mod routes;
 mod services;
 mod state;
 
-use dao::mongodb::{connect, ensure_indexes};
-use state::{AppState, SharedState};
+use dao::{
+    game::GameStore,
+    mongodb::{MongoGameStore, connect, ensure_indexes},
+};
+use services::storage_supervisor;
+use state::AppState;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -29,7 +32,19 @@ async fn main() -> anyhow::Result<()> {
 
     let app_state = AppState::new();
 
-    tokio::spawn(run_mongo_supervisor(app_state.clone(), mongo_uri, mongo_db));
+    tokio::spawn(storage_supervisor::run(app_state.clone(), {
+        move || {
+            let uri = mongo_uri.clone();
+            let db = mongo_db.clone();
+            async move {
+                let manager = connect(&uri, db.as_deref()).await?;
+                let database = manager.database().await;
+                ensure_indexes(&database).await?;
+                let store: Arc<dyn GameStore> = Arc::new(MongoGameStore::new(manager));
+                Ok(store)
+            }
+        }
+    }));
     // Build the HTTP router once the shared state is ready.
     let app = build_router(app_state);
 
@@ -50,62 +65,6 @@ async fn main() -> anyhow::Result<()> {
         .context("serving axum")?;
 
     Ok(())
-}
-
-/// Supervises the MongoDB connection by retrying in the background and toggling
-/// degraded mode when connectivity changes.
-async fn run_mongo_supervisor(state: SharedState, uri: String, db_name: Option<String>) {
-    let initial_delay_ms = 1000;
-    let mut delay = Duration::from_millis(initial_delay_ms);
-    let max_delay = Duration::from_secs(10);
-
-    loop {
-        if let Some(manager) = state.mongo().await {
-            match manager.ping().await {
-                Ok(_) => {
-                    // Healthy connection: reset the retry backoff and avoid
-                    // hammering the database with pings.
-                    delay = Duration::from_millis(initial_delay_ms);
-                    sleep(Duration::from_secs(5)).await;
-                }
-                Err(err) => {
-                    // Existing connection failed: drop it, flip to degraded
-                    // mode, and retry with exponential backoff.
-                    warn!(error = %err, "MongoDB ping failed; entering degraded mode");
-                    state.clear_mongo().await;
-                    sleep(delay).await;
-                    delay = (delay * 2).min(max_delay);
-                }
-            }
-            continue;
-        }
-
-        match connect(&uri, db_name.as_deref()).await {
-            Ok(manager) => match ensure_indexes(&manager.database().await).await {
-                Ok(()) => {
-                    // Fresh connection and indexes ready: install it and leave
-                    // degraded mode.
-                    info!("connected to MongoDB; leaving degraded mode");
-                    state.install_mongo(manager).await;
-                    delay = Duration::from_millis(initial_delay_ms);
-                }
-                Err(err) => {
-                    // Connection succeeded but index creation failed: retry
-                    // after backing off.
-                    error!(%err, "failed to ensure MongoDB indexes; retrying");
-                    sleep(delay).await;
-                    delay = (delay * 2).min(max_delay);
-                }
-            },
-            Err(err) => {
-                // Could not reach MongoDB at all: wait and retry with
-                // exponential backoff.
-                warn!(error = %err, "MongoDB connection attempt failed");
-                sleep(delay).await;
-                delay = (delay * 2).min(max_delay);
-            }
-        }
-    }
 }
 
 /// Build the top-level router and attach cross-cutting middleware layers.

@@ -3,14 +3,14 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::{
-    dao::mongodb::MongoDaoError,
+    dao::StorageError,
     state::{AbortError, ApplyError, PlanError},
 };
 
 #[derive(Debug, Error)]
 pub enum ServiceError {
     #[error("storage unavailable")]
-    Unavailable(#[source] MongoDaoError),
+    Unavailable(#[source] StorageError),
     #[error("storage unavailable (degraded mode)")]
     Degraded,
     #[error("unauthorized: {0}")]
@@ -25,21 +25,9 @@ pub enum ServiceError {
     Timeout,
 }
 
-impl From<MongoDaoError> for ServiceError {
-    fn from(err: MongoDaoError) -> Self {
-        match err {
-            MongoDaoError::EnsureIndex { .. }
-            | MongoDaoError::ClientConstruction { .. }
-            | MongoDaoError::InvalidUri { .. }
-            | MongoDaoError::InitialPing { .. }
-            | MongoDaoError::HealthPing { .. }
-            | MongoDaoError::SaveGame { .. }
-            | MongoDaoError::SavePlaylist { .. }
-            | MongoDaoError::LoadGame { .. }
-            | MongoDaoError::LoadPlaylist { .. }
-            | MongoDaoError::ListGames { .. }
-            | MongoDaoError::ListPlaylists { .. } => ServiceError::Unavailable(err),
-        }
+impl From<StorageError> for ServiceError {
+    fn from(err: StorageError) -> Self {
+        ServiceError::Unavailable(err)
     }
 }
 
@@ -68,9 +56,7 @@ impl From<ServiceError> for AppError {
             ServiceError::InvalidInput(message) => AppError::BadRequest(message),
             ServiceError::InvalidState(message) => AppError::Conflict(message),
             ServiceError::NotFound(message) => AppError::NotFound(message),
-            ServiceError::Timeout => {
-                AppError::ServiceUnavailable("operation timed out".into())
-            }
+            ServiceError::Timeout => AppError::ServiceUnavailable("operation timed out".into()),
         }
     }
 }

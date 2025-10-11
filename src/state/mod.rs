@@ -13,7 +13,7 @@ use tracing::warn;
 
 use crate::services::websocket_service::send_message_to_websocket;
 use crate::{
-    dao::mongodb::MongoManager,
+    dao::game::GameStore,
     dto::ws::BuzzFeedback,
     error::ServiceError,
     state::{game::GameSession, state_machine::GamePhase},
@@ -38,7 +38,7 @@ pub struct BuzzerConnection {
 
 /// Central application state storing persistent connections and database handles.
 pub struct AppState {
-    mongo: RwLock<Option<MongoManager>>,
+    game_store: RwLock<Option<Arc<dyn GameStore>>>,
     sse: SseState,
     buzzers: DashMap<String, BuzzerConnection>,
     game: RwLock<GameStateMachine>,
@@ -51,12 +51,11 @@ pub struct AppState {
 impl AppState {
     /// Construct a new [`AppState`] wrapped in an [`Arc`] so it can be cloned cheaply.
     ///
-    /// The application starts in degraded mode until the MongoDB supervisor
-    /// establishes a connection and installs a [`MongoManager`].
+    /// The application starts in degraded mode until a storage backend is installed.
     pub fn new() -> SharedState {
         let (degraded_tx, _rx) = watch::channel(true);
         Arc::new(Self {
-            mongo: RwLock::new(None),
+            game_store: RwLock::new(None),
             sse: SseState::new(16, 16),
             buzzers: DashMap::new(),
             game: RwLock::new(GameStateMachine::new()),
@@ -67,25 +66,25 @@ impl AppState {
         })
     }
 
-    /// Obtain a cloned MongoDB manager, if a connection is currently available.
-    pub async fn mongo(&self) -> Option<MongoManager> {
-        let guard = self.mongo.read().await;
-        guard.clone()
+    /// Obtain a handle to the current game store, if one is installed.
+    pub async fn game_store(&self) -> Option<Arc<dyn GameStore>> {
+        let guard = self.game_store.read().await;
+        guard.as_ref().cloned()
     }
 
-    /// Replace the MongoDB manager and leave degraded mode.
-    pub async fn install_mongo(&self, manager: MongoManager) {
+    /// Install a new game store implementation and leave degraded mode.
+    pub async fn install_game_store(&self, store: Arc<dyn GameStore>) {
         {
-            let mut guard = self.mongo.write().await;
-            *guard = Some(manager);
+            let mut guard = self.game_store.write().await;
+            *guard = Some(store);
         }
         self.update_degraded(false).await;
     }
 
-    /// Remove the MongoDB manager and enter degraded mode.
-    pub async fn clear_mongo(&self) {
+    /// Remove the current game store and enter degraded mode.
+    pub async fn clear_game_store(&self) {
         {
-            let mut guard = self.mongo.write().await;
+            let mut guard = self.game_store.write().await;
             guard.take();
         }
         self.update_degraded(true).await;
@@ -93,7 +92,7 @@ impl AppState {
 
     /// Current degraded flag.
     pub async fn is_degraded(&self) -> bool {
-        let guard = self.mongo.read().await;
+        let guard = self.game_store.read().await;
         guard.is_none()
     }
 

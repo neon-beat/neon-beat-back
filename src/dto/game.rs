@@ -1,8 +1,9 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, time::SystemTime};
 
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -154,8 +155,8 @@ impl From<GameSession> for GameSummary {
         Self {
             id: session.id.to_string(),
             name: session.name,
-            created_at: session.created_at.to_string(),
-            updated_at: session.updated_at.to_string(),
+            created_at: format_system_time(session.created_at),
+            updated_at: format_system_time(session.updated_at),
             players: session.players.into_iter().map(Into::into).collect(),
             playlist: playlist_summary,
             current_song_index: session.current_song_index,
@@ -203,4 +204,10 @@ fn ordered_song_summaries(
             Ok((song_id, song_ref.value().clone()).into())
         })
         .collect::<Result<Vec<SongSummary>, _>>()
+}
+
+fn format_system_time(time: SystemTime) -> String {
+    OffsetDateTime::from(time)
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| "invalid-timestamp".into())
 }

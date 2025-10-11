@@ -1,12 +1,12 @@
 //! Business logic powering the admin REST routes. These helpers coordinate
-//! MongoDB persistence, in-memory state updates, and state-machine transitions
+//! Storage persistence, in-memory state updates, and state-machine transitions
 //! while honouring the single-transition-at-a-time requirement.
 
-use mongodb::bson::DateTime;
+use std::{sync::Arc, time::SystemTime};
 use uuid::Uuid;
 
 use crate::{
-    dao::game::GameRepository,
+    dao::game::GameStore,
     dto::{
         admin::{
             ActionResponse, AnswerValidationRequest, CreateGameRequest, FieldKind,
@@ -29,17 +29,14 @@ use crate::{
     },
 };
 
-/// Obtain a MongoDB repository instance or surface degraded mode.
-async fn mongo_repo(state: &SharedState) -> Result<GameRepository, ServiceError> {
-    let Some(mongo) = state.mongo().await else {
-        return Err(ServiceError::Degraded);
-    };
-    Ok(GameRepository::new(mongo))
+/// Obtain the configured game store or surface degraded mode.
+async fn game_store(state: &SharedState) -> Result<Arc<dyn GameStore>, ServiceError> {
+    state.game_store().await.ok_or(ServiceError::Degraded)
 }
 
-/// Persist the in-memory game session back into MongoDB.
+/// Persist the in-memory game session back into the configured store.
 async fn persist_current_game(state: &SharedState) -> Result<(), ServiceError> {
-    let repository = mongo_repo(state).await?;
+    let store = game_store(state).await?;
     let snapshot = {
         let guard = state.current_game().read().await;
         guard
@@ -47,7 +44,7 @@ async fn persist_current_game(state: &SharedState) -> Result<(), ServiceError> {
             .cloned()
             .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?
     };
-    repository.save(snapshot.into()).await?;
+    store.save_game(snapshot.into()).await?;
     Ok(())
 }
 
@@ -60,7 +57,7 @@ fn unwrap_current_game_mut(
         .ok_or_else(|| ServiceError::InvalidState("no active game".into()))
 }
 
-/// Return the games persisted in MongoDB for selection in the admin UI.
+/// Return the games persisted in storage for selection in the admin UI.
 fn ensure_running_phase(phase: GamePhase) -> Result<GameRunningPhase, ServiceError> {
     match phase {
         GamePhase::GameRunning(sub) => Ok(sub),
@@ -75,8 +72,8 @@ fn ensure_running_phase(phase: GamePhase) -> Result<GameRunningPhase, ServiceErr
 // ---------------------------------------------------------------------------
 
 pub async fn list_games(state: &SharedState) -> Result<Vec<GameListItem>, ServiceError> {
-    let repository = mongo_repo(state).await?;
-    let entries = repository.list_games().await?;
+    let store = game_store(state).await?;
+    let entries = store.list_games().await?;
     Ok(entries
         .into_iter()
         .map(|(id, name)| GameListItem { id, name })
@@ -85,8 +82,8 @@ pub async fn list_games(state: &SharedState) -> Result<Vec<GameListItem>, Servic
 
 /// Return the playlists that can seed new games.
 pub async fn list_playlists(state: &SharedState) -> Result<Vec<PlaylistListItem>, ServiceError> {
-    let repository = mongo_repo(state).await?;
-    let entries = repository.list_playlists().await?;
+    let store = game_store(state).await?;
+    let entries = store.list_playlists().await?;
     Ok(entries
         .into_iter()
         .map(|(id, name)| PlaylistListItem { id, name })
@@ -239,12 +236,10 @@ async fn load_next_song(
     };
     let event = if start {
         GameEvent::GameConfigured
+    } else if next_song_index.is_some() {
+        GameEvent::NextSong
     } else {
-        if next_song_index.is_some() {
-            GameEvent::NextSong
-        } else {
-            GameEvent::Finish(FinishReason::PlaylistCompleted)
-        }
+        GameEvent::Finish(FinishReason::PlaylistCompleted)
     };
 
     run_transition_with_broadcast(state, event, move || async move {
@@ -254,7 +249,7 @@ async fn load_next_song(
             game.current_song_index = next_song_index;
             game.found_point_fields.clear();
             game.found_bonus_fields.clear();
-            game.updated_at = DateTime::now();
+            game.updated_at = SystemTime::now();
 
             if let Some(index) = next_song_index {
                 let (song_id, song) = game.get_song(index).ok_or_else(|| {
@@ -284,7 +279,7 @@ pub async fn stop_game(state: &SharedState) -> Result<StopGameResponse, ServiceE
                 game.current_song_index = None;
                 game.found_point_fields.clear();
                 game.found_bonus_fields.clear();
-                game.updated_at = DateTime::now();
+                game.updated_at = SystemTime::now();
                 game.players
                     .iter()
                     .cloned()

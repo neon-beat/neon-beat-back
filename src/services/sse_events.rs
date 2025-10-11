@@ -6,11 +6,10 @@ use crate::{
         AnswerValidationEvent, FieldsFoundEvent, PhaseChangedEvent, PhaseSnapshot,
         PointFieldSnapshot, ServerEvent, SongSnapshot, TeamSummary, TeamsEvent,
     },
-    error::ServiceError,
     state::{
         SharedState,
         game::{GameSession, Player},
-        state_machine::{GameEvent, GamePhase, GameRunningPhase, PauseKind},
+        state_machine::{GamePhase, GameRunningPhase, PauseKind},
     },
 };
 

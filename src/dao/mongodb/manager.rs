@@ -1,17 +1,17 @@
+use std::{sync::Arc, time::Duration};
+
 use mongodb::{
     Client, Database,
     bson::doc,
-    error::Error as MongoError,
     options::{ClientOptions, IndexOptions},
 };
-use std::{sync::Arc, time::Duration};
-use thiserror::Error;
 use tokio::{
     sync::RwLock,
     time::{MissedTickBehavior, interval, sleep},
 };
-use tracing::{error, info, warn};
-use uuid::Uuid;
+use tracing::{info, warn};
+
+use super::error::{MongoDaoError, Result};
 
 const DEFAULT_DB: &str = "neon_beat";
 const MAX_CONNECT_ATTEMPTS: u32 = 10;
@@ -27,81 +27,11 @@ struct MongoManagerInner {
     state: RwLock<MongoState>,
     options: ClientOptions,
     database_name: String,
-    uri: String,
 }
 
 struct MongoState {
     client: Client,
     database: Database,
-}
-
-type Result<T> = std::result::Result<T, MongoDaoError>;
-
-#[derive(Debug, Error)]
-pub enum MongoDaoError {
-    #[error("failed to parse MongoDB connection URI `{uri}`")]
-    InvalidUri {
-        uri: String,
-        #[source]
-        source: MongoError,
-    },
-    #[error("failed to build MongoDB client from options")]
-    ClientConstruction {
-        #[source]
-        source: MongoError,
-    },
-    #[error("MongoDB ping failed during initial connection after {attempts} attempt(s)")]
-    InitialPing {
-        attempts: u32,
-        #[source]
-        source: MongoError,
-    },
-    #[error("MongoDB ping health check failed")]
-    HealthPing {
-        #[source]
-        source: MongoError,
-    },
-    #[error("failed to ensure index `{index}` on collection `{collection}`")]
-    EnsureIndex {
-        collection: &'static str,
-        index: &'static str,
-        #[source]
-        source: MongoError,
-    },
-    #[error("failed to save game `{id}`")]
-    SaveGame {
-        id: Uuid,
-        #[source]
-        source: MongoError,
-    },
-    #[error("failed to save playlist `{id}`")]
-    SavePlaylist {
-        id: Uuid,
-        #[source]
-        source: MongoError,
-    },
-    #[error("failed to load game `{id}`")]
-    LoadGame {
-        id: Uuid,
-        #[source]
-        source: MongoError,
-    },
-    #[error("failed to load playlist `{id}`")]
-    LoadPlaylist {
-        id: Uuid,
-        #[source]
-        source: MongoError,
-    },
-    #[error("failed to list games")]
-    ListGames {
-        #[source]
-        source: MongoError,
-    },
-    #[error("failed to list playlists")]
-    ListPlaylists {
-        #[source]
-        source: MongoError,
-    },
 }
 
 /// Connect to MongoDB and start a watcher that keeps the connection healthy.
@@ -121,7 +51,6 @@ pub async fn connect(uri: &str, db_name: Option<&str>) -> Result<MongoManager> {
         state: RwLock::new(state),
         options,
         database_name,
-        uri: uri.to_owned(),
     });
 
     MongoManagerInner::spawn_health_task(&inner);
@@ -201,34 +130,27 @@ impl MongoManagerInner {
     }
 
     async fn reconnect(&self) {
-        let mut attempt: u32 = 0;
+        let mut attempts = 0;
+        let mut delay = Duration::from_millis(BASE_RETRY_DELAY_MS);
 
         loop {
-            attempt += 1;
-
+            attempts += 1;
             match establish_connection(&self.options, &self.database_name).await {
                 Ok((client, database)) => {
-                    {
-                        let mut guard = self.state.write().await;
-                        guard.client = client;
-                        guard.database = database;
-                    }
-                    info!(attempt, "reconnected to MongoDB");
+                    let mut guard = self.state.write().await;
+                    guard.client = client;
+                    guard.database = database;
+                    info!("MongoDB connection re-established");
                     break;
                 }
                 Err(err) => {
-                    error!(
-                        attempt,
+                    warn!(
                         error = %err,
-                        uri = %self.uri,
-                        "MongoDB reconnect attempt failed"
+                        attempts,
+                        "failed to re-establish MongoDB connection; retrying"
                     );
-
-                    let backoff_multiplier = 1u64 << (attempt.saturating_sub(1).min(4));
-                    let wait = Duration::from_millis(BASE_RETRY_DELAY_MS * backoff_multiplier)
-                        .min(Duration::from_secs(5));
-
-                    sleep(wait).await;
+                    sleep(delay).await;
+                    delay = (delay * 2).min(Duration::from_secs(5));
                 }
             }
         }
@@ -243,37 +165,25 @@ async fn establish_connection(
         .map_err(|source| MongoDaoError::ClientConstruction { source })?;
     let database = client.database(database_name);
 
-    let mut attempt: u32 = 0;
-    loop {
-        attempt += 1;
+    let mut attempts = 0;
+    let mut interval = Duration::from_millis(BASE_RETRY_DELAY_MS);
 
+    loop {
         match database.run_command(doc! { "ping": 1 }).await {
-            Ok(_) => {
-                if attempt > 1 {
-                    info!(attempt, "connected to MongoDB after retry");
-                }
-                return Ok((client, database));
-            }
-            Err(err) if attempt < MAX_CONNECT_ATTEMPTS => {
-                let backoff_multiplier = 1u64 << (attempt.saturating_sub(1).min(4));
-                let wait = Duration::from_millis(BASE_RETRY_DELAY_MS * backoff_multiplier)
-                    .min(Duration::from_secs(5));
-                warn!(
-                    attempt,
-                    wait_ms = wait.as_millis(),
-                    error = %err,
-                    "MongoDB ping failed during initial connection; retrying"
-                );
-                sleep(wait).await;
-            }
+            Ok(_) => break,
             Err(err) => {
-                return Err(MongoDaoError::InitialPing {
-                    attempts: attempt,
-                    source: err,
-                });
+                attempts += 1;
+                if attempts >= MAX_CONNECT_ATTEMPTS {
+                    return Err(MongoDaoError::InitialPing {
+                        attempts,
+                        source: err,
+                    });
+                }
+                sleep(interval).await;
+                interval = (interval * 2).min(Duration::from_secs(5));
             }
         }
     }
-}
 
-impl MongoManagerInner {}
+    Ok((client, database))
+}

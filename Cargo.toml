@@ -22,6 +22,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow = "1.0"
 async-stream = "0.3"
 rand = "0.9"
+time = { version = "0.3", features = ["formatting"] }
 
 [lints.rust]
 missing_docs = "warn"

@@ -1,6 +1,6 @@
 use dashmap::DashMap;
-use mongodb::bson::DateTime;
 use rand::{rng, seq::SliceRandom};
+use std::time::SystemTime;
 use uuid::Uuid;
 
 use crate::dao::models::{GameEntity, PlayerEntity, PlaylistEntity, PointFieldEntity, SongEntity};
@@ -61,9 +61,9 @@ pub struct GameSession {
     /// Display name of the quiz / round.
     pub name: String,
     /// Creation timestamp for auditing/debugging.
-    pub created_at: DateTime,
+    pub created_at: SystemTime,
     /// Last time the game document was updated.
-    pub updated_at: DateTime,
+    pub updated_at: SystemTime,
     /// Participating players and their current scores.
     pub players: Vec<Player>,
     /// Playlist selected for this session.
@@ -85,7 +85,7 @@ impl GameSession {
     /// fresh game starts with a randomized sequence while keeping deterministic
     /// identifiers for persistence and DTO conversions.
     pub fn new(name: String, players: Vec<Player>, playlist: Playlist) -> Self {
-        let timestamp = DateTime::now();
+        let timestamp = SystemTime::now();
 
         let mut playlist_song_order: Vec<u32> =
             playlist.songs.iter().map(|entry| *entry.key()).collect();
