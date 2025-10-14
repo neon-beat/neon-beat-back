@@ -1,0 +1,38 @@
+services:
+  couchdb:
+    image: couchdb:3
+    restart: unless-stopped
+    ports:
+      - "5984:5984"
+    environment:
+      COUCHDB_USER: &couch_usr admin
+      COUCHDB_PASSWORD: &couch_pwd adminpass
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://admin:adminpass@localhost:5984/_up"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      args:
+        BUILD_TARGET: ${BUILD_TARGET:-}
+    environment:
+      COUCH_BASE_URL: http://couchdb:5984
+      COUCH_DB: appdb
+      COUCH_USERNAME: *couch_usr
+      COUCH_PASSWORD: *couch_pwd
+      PORT: "8080"
+      RUST_LOG: info
+    depends_on:
+      couchdb:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  couchdb_data:
