@@ -18,6 +18,7 @@ mod state;
 
 use dao::game_store::{
     GameStore,
+    couchdb::{CouchConfig, CouchGameStore},
     mongodb::{MongoConfig, MongoGameStore},
 };
 use services::storage_supervisor;
@@ -29,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app_state = AppState::new();
 
-    spawn_mongo_supervisor(app_state.clone()).await?;
+    spawn_couch_supervisor(app_state.clone()).await?;
 
     // Build the HTTP router once the shared state is ready.
     let app = build_router(app_state);
@@ -53,16 +54,31 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 async fn spawn_mongo_supervisor(state: Arc<AppState>) -> anyhow::Result<()> {
-    let uri = env::var("MONGO_URI").unwrap_or_else(|_| "mongodb://localhost:27017".into());
-    let db = env::var("MONGO_DB").ok();
-    let config = Arc::new(MongoConfig::from_uri(&uri, db.as_deref()).await?);
+    let config = Arc::new(MongoConfig::from_env().await?);
 
     tokio::spawn(storage_supervisor::run(state, {
         move || {
             let cfg = config.clone();
             async move {
                 let store = MongoGameStore::connect((*cfg).clone()).await?;
+                Ok::<Arc<dyn GameStore>, _>(Arc::new(store))
+            }
+        }
+    }));
+
+    Ok(())
+}
+
+async fn spawn_couch_supervisor(state: Arc<AppState>) -> anyhow::Result<()> {
+    let config = Arc::new(CouchConfig::from_env()?);
+
+    tokio::spawn(storage_supervisor::run(state, {
+        move || {
+            let cfg = config.clone();
+            async move {
+                let store = CouchGameStore::connect((*cfg).clone()).await?;
                 Ok::<Arc<dyn GameStore>, _>(Arc::new(store))
             }
         }

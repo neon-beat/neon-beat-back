@@ -213,7 +213,9 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Raise an error if the playlist is empty during GameSession/Playlist creation/loading
 - [x] Add song ID to MarkFieldRequest
 - [x] Implement a transaction system for state machine (prepare, to know if it is possible, then apply the waiting transaction when we have finished the processing)
-- [ ] Migrate from MongoDB to CouchDB
+- [x] Migrate from MongoDB to CouchDB
+- [ ] Support multiple DB and choose the one at buildtime or runtime
+- [ ] Team update (admin route) + team management at game load
 - [ ] Implement public routes:
    - [ ] get teams/players
    - [ ] get song to find (& found fields)
