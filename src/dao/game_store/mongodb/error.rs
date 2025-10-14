@@ -69,4 +69,6 @@ pub enum MongoDaoError {
         #[source]
         source: MongoError,
     },
+    #[error("missing MongoDB environment variable `{var}`")]
+    MissingEnvVar { var: &'static str },
 }

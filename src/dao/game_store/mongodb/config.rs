@@ -24,4 +24,12 @@ impl MongoConfig {
             database_name,
         })
     }
+
+    pub async fn from_env() -> MongoResult<Self> {
+        let uri = std::env::var("MONGO_URI")
+            .map_err(|_| MongoDaoError::MissingEnvVar { var: "MONGO_URI" })?;
+        let db = std::env::var("MONGO_DB")
+            .map_err(|_| MongoDaoError::MissingEnvVar { var: "MONGO_DB" })?;
+        Self::from_uri(&uri, Some(&db)).await
+    }
 }
