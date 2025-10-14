@@ -1,4 +1,4 @@
-use std::{io, sync::Arc};
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use reqwest::{Client, Method, StatusCode};
@@ -9,18 +9,18 @@ use uuid::Uuid;
 use crate::dao::{
     game_store::GameStore,
     models::{GameEntity, PlaylistEntity},
-    storage::{StorageError, StorageResult},
+    storage::StorageResult,
 };
 
 use super::{
     config::CouchConfig,
+    error::{CouchDaoError, CouchResult},
     models::{
         AllDocsResponse, CouchGameDocument, CouchPlaylistDocument, END_SUFFIX, GAME_PREFIX,
         PLAYLIST_PREFIX, game_doc_id, playlist_doc_id,
     },
 };
 
-#[allow(dead_code)]
 #[derive(Clone)]
 pub struct CouchGameStore {
     client: Client,
@@ -29,13 +29,12 @@ pub struct CouchGameStore {
     auth: Option<(Arc<str>, Arc<str>)>,
 }
 
-#[allow(dead_code)]
 impl CouchGameStore {
     /// Establish a connection to CouchDB and ensure the database exists.
-    pub async fn connect(config: CouchConfig) -> StorageResult<Self> {
-        let client = Client::builder().build().map_err(|err| {
-            StorageError::unavailable("failed to build CouchDB client".into(), err)
-        })?;
+    pub async fn connect(config: CouchConfig) -> CouchResult<Self> {
+        let client = Client::builder()
+            .build()
+            .map_err(|source| CouchDaoError::ClientBuilder { source })?;
 
         let base_url = Arc::<str>::from(config.base_url.trim_end_matches('/'));
         let database = Arc::<str>::from(config.database);
@@ -65,16 +64,21 @@ impl CouchGameStore {
         }
     }
 
-    async fn ensure_database(&self) -> StorageResult<()> {
+    async fn ensure_database(&self) -> CouchResult<()> {
+        let database = self.database.to_string();
         let url = format!("{}/{}", self.base_url, self.database);
         let mut builder = self.client.get(&url);
         if let Some((ref user, ref pass)) = self.auth {
             builder = builder.basic_auth(user.as_ref(), Some(pass.as_ref()));
         }
 
-        let response = builder.send().await.map_err(|err| {
-            StorageError::unavailable("failed to query CouchDB database".into(), err)
-        })?;
+        let response = builder
+            .send()
+            .await
+            .map_err(|source| CouchDaoError::DatabaseQuery {
+                database: database.clone(),
+                source,
+            })?;
 
         match response.status() {
             StatusCode::OK => Ok(()),
@@ -83,40 +87,31 @@ impl CouchGameStore {
                 if let Some((ref user, ref pass)) = self.auth {
                     builder = builder.basic_auth(user.as_ref(), Some(pass.as_ref()));
                 }
-                let create = builder.send().await.map_err(|err| {
-                    StorageError::unavailable("failed to create CouchDB database".into(), err)
-                })?;
+                let create =
+                    builder
+                        .send()
+                        .await
+                        .map_err(|source| CouchDaoError::DatabaseCreate {
+                            database: database.clone(),
+                            source,
+                        })?;
                 if create.status().is_success() {
                     Ok(())
                 } else {
-                    let msg = format!(
-                        "CouchDB rejected database creation with status {}",
-                        create.status()
-                    );
-                    Err(StorageError::unavailable(
-                        msg.clone(),
-                        io::Error::new(io::ErrorKind::Other, msg),
-                    ))
+                    Err(CouchDaoError::DatabaseStatus {
+                        database,
+                        status: create.status(),
+                    })
                 }
             }
-            other => {
-                let msg = format!("unexpected CouchDB database response status {}", other);
-                Err(StorageError::unavailable(
-                    msg.clone(),
-                    io::Error::new(io::ErrorKind::Other, msg),
-                ))
-            }
+            other => Err(CouchDaoError::DatabaseStatus {
+                database,
+                status: other,
+            }),
         }
     }
 
-    fn couch_error(
-        message: impl Into<String>,
-        err: impl std::error::Error + Send + Sync + 'static,
-    ) -> StorageError {
-        StorageError::unavailable(message.into(), err)
-    }
-
-    async fn get_document<T>(&self, doc_id: &str) -> StorageResult<Option<T>>
+    async fn get_document<T>(&self, doc_id: &str) -> CouchResult<Option<T>>
     where
         T: DeserializeOwned,
     {
@@ -124,29 +119,29 @@ impl CouchGameStore {
             .request(Method::GET, doc_id)
             .send()
             .await
-            .map_err(|err| Self::couch_error("failed to query CouchDB document", err))?;
+            .map_err(|source| CouchDaoError::RequestSend {
+                path: doc_id.to_string(),
+                source,
+            })?;
 
         match response.status() {
             StatusCode::NOT_FOUND => Ok(None),
-            status if status.is_success() => response
-                .json::<T>()
-                .await
-                .map(Some)
-                .map_err(|err| Self::couch_error("failed to deserialize CouchDB document", err)),
-            other => {
-                let msg = format!(
-                    "CouchDB responded with status {} for document {}",
-                    other, doc_id
-                );
-                Err(Self::couch_error(
-                    msg.clone(),
-                    io::Error::new(io::ErrorKind::Other, msg),
-                ))
+            status if status.is_success() => {
+                response.json::<T>().await.map(Some).map_err(|source| {
+                    CouchDaoError::DecodeResponse {
+                        path: doc_id.to_string(),
+                        source,
+                    }
+                })
             }
+            other => Err(CouchDaoError::RequestStatus {
+                path: doc_id.to_string(),
+                status: other,
+            }),
         }
     }
 
-    async fn put_document<T>(&self, doc_id: &str, document: &T) -> StorageResult<()>
+    async fn put_document<T>(&self, doc_id: &str, document: &T) -> CouchResult<()>
     where
         T: ?Sized + Serialize,
     {
@@ -155,27 +150,26 @@ impl CouchGameStore {
             .json(document)
             .send()
             .await
-            .map_err(|err| Self::couch_error("failed to send CouchDB PUT", err))?;
+            .map_err(|source| CouchDaoError::RequestSend {
+                path: doc_id.to_string(),
+                source,
+            })?;
 
         if response.status().is_success() {
             Ok(())
         } else {
-            let msg = format!(
-                "CouchDB rejected PUT for {} with status {}",
-                doc_id,
-                response.status()
-            );
-            Err(Self::couch_error(
-                msg.clone(),
-                io::Error::new(io::ErrorKind::Other, msg),
-            ))
+            Err(CouchDaoError::RequestStatus {
+                path: doc_id.to_string(),
+                status: response.status(),
+            })
         }
     }
 
-    async fn list_documents<T>(&self, prefix: &str) -> StorageResult<Vec<T>>
+    async fn list_documents<T>(&self, prefix: &str) -> CouchResult<Vec<T>>
     where
         T: DeserializeOwned,
     {
+        const ALL_DOCS: &str = "_all_docs";
         let query = [
             ("include_docs", "true".to_string()),
             ("startkey", format!("\"{}\"", prefix)),
@@ -183,33 +177,36 @@ impl CouchGameStore {
         ];
 
         let response = self
-            .request(Method::GET, "_all_docs")
+            .request(Method::GET, ALL_DOCS)
             .query(&query)
             .send()
             .await
-            .map_err(|err| Self::couch_error("failed to list CouchDB documents", err))?;
+            .map_err(|source| CouchDaoError::RequestSend {
+                path: ALL_DOCS.to_string(),
+                source,
+            })?;
 
         if !response.status().is_success() {
-            let msg = format!(
-                "CouchDB rejected _all_docs request with status {}",
-                response.status()
-            );
-            return Err(Self::couch_error(
-                msg.clone(),
-                io::Error::new(io::ErrorKind::Other, msg),
-            ));
+            return Err(CouchDaoError::RequestStatus {
+                path: ALL_DOCS.to_string(),
+                status: response.status(),
+            });
         }
 
-        let payload = response
-            .json::<AllDocsResponse>()
-            .await
-            .map_err(|err| Self::couch_error("failed to decode CouchDB _all_docs response", err))?;
+        let payload = response.json::<AllDocsResponse>().await.map_err(|source| {
+            CouchDaoError::DecodeResponse {
+                path: ALL_DOCS.to_string(),
+                source,
+            }
+        })?;
 
         let mut documents = Vec::new();
         for row in payload.rows {
             if let Some(doc) = row.doc {
-                let parsed = from_value(doc)
-                    .map_err(|err| Self::couch_error("failed to deserialize CouchDB row", err))?;
+                let parsed = from_value(doc).map_err(|source| CouchDaoError::DeserializeValue {
+                    path: ALL_DOCS.to_string(),
+                    source,
+                })?;
                 documents.push(parsed);
             }
         }
@@ -227,7 +224,7 @@ impl GameStore for CouchGameStore {
             if let Some(existing) = store.get_document::<CouchGameDocument>(&doc_id).await? {
                 doc.rev = existing.rev;
             }
-            store.put_document(&doc_id, &doc).await
+            store.put_document(&doc_id, &doc).await.map_err(Into::into)
         })
     }
 
@@ -239,7 +236,7 @@ impl GameStore for CouchGameStore {
             if let Some(existing) = store.get_document::<CouchPlaylistDocument>(&doc_id).await? {
                 doc.rev = existing.rev;
             }
-            store.put_document(&doc_id, &doc).await
+            store.put_document(&doc_id, &doc).await.map_err(Into::into)
         })
     }
 
@@ -247,10 +244,8 @@ impl GameStore for CouchGameStore {
         let store = self.clone();
         Box::pin(async move {
             let doc_id = game_doc_id(id);
-            match store.get_document::<CouchGameDocument>(&doc_id).await? {
-                Some(doc) => Ok(Some(doc.into_entity())),
-                None => Ok(None),
-            }
+            let maybe_doc = store.get_document::<CouchGameDocument>(&doc_id).await?;
+            Ok(maybe_doc.map(|doc| doc.into_entity()))
         })
     }
 
@@ -258,10 +253,8 @@ impl GameStore for CouchGameStore {
         let store = self.clone();
         Box::pin(async move {
             let doc_id = playlist_doc_id(id);
-            match store.get_document::<CouchPlaylistDocument>(&doc_id).await? {
-                Some(doc) => Ok(Some(doc.into_entity())),
-                None => Ok(None),
-            }
+            let maybe_doc = store.get_document::<CouchPlaylistDocument>(&doc_id).await?;
+            Ok(maybe_doc.map(|doc| doc.into_entity()))
         })
     }
 
@@ -305,24 +298,29 @@ impl GameStore for CouchGameStore {
             if let Some((ref user, ref pass)) = store.auth {
                 builder = builder.basic_auth(user.as_ref(), Some(pass.as_ref()));
             }
+
             let response = builder
                 .send()
                 .await
-                .map_err(|err| StorageError::unavailable("failed to ping CouchDB".into(), err))?;
+                .map_err(|source| CouchDaoError::RequestSend {
+                    path: url.clone(),
+                    source,
+                })?;
+
             if response.status().is_success() {
                 Ok(())
             } else {
-                let msg = format!("CouchDB ping failed with status {}", response.status());
-                Err(StorageError::unavailable(
-                    msg.clone(),
-                    io::Error::new(io::ErrorKind::Other, msg),
-                ))
+                Err(CouchDaoError::RequestStatus {
+                    path: url,
+                    status: response.status(),
+                }
+                .into())
             }
         })
     }
 
     fn try_reconnect(&self) -> BoxFuture<'static, StorageResult<()>> {
         let store = self.clone();
-        Box::pin(async move { store.ensure_database().await })
+        Box::pin(async move { store.ensure_database().await.map_err(Into::into) })
     }
 }
