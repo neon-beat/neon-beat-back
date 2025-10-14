@@ -17,7 +17,6 @@ pub struct AllDocsResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct AllDocsRow {
-    #[allow(dead_code)]
     pub id: String,
     #[serde(default)]
     pub doc: Option<Value>,
