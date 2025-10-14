@@ -21,6 +21,7 @@ use super::{
     },
 };
 
+/// CouchDB-backed implementation of the [`GameStore`] trait.
 #[derive(Clone)]
 pub struct CouchGameStore {
     client: Client,
@@ -54,6 +55,7 @@ impl CouchGameStore {
         Ok(store)
     }
 
+    /// Prepare a request builder for a collection-relative path, including authentication.
     fn request(&self, method: Method, path: &str) -> reqwest::RequestBuilder {
         let url = format!("{}/{}/{}", self.base_url, self.database, path);
         let builder = self.client.request(method, url);
@@ -64,6 +66,7 @@ impl CouchGameStore {
         }
     }
 
+    /// Verify the CouchDB database exists, creating it when possible.
     async fn ensure_database(&self) -> CouchResult<()> {
         let database = self.database.to_string();
         let url = format!("{}/{}", self.base_url, self.database);
@@ -111,6 +114,7 @@ impl CouchGameStore {
         }
     }
 
+    /// Retrieve and deserialize a document by id.
     async fn get_document<T>(&self, doc_id: &str) -> CouchResult<Option<T>>
     where
         T: DeserializeOwned,
@@ -141,6 +145,7 @@ impl CouchGameStore {
         }
     }
 
+    /// Upload a document, reusing the provided revision when present.
     async fn put_document<T>(&self, doc_id: &str, document: &T) -> CouchResult<()>
     where
         T: ?Sized + Serialize,
@@ -165,6 +170,7 @@ impl CouchGameStore {
         }
     }
 
+    /// Fetch documents with identifiers matching the provided prefix.
     async fn list_documents<T>(&self, prefix: &str) -> CouchResult<Vec<T>>
     where
         T: DeserializeOwned,
@@ -216,6 +222,7 @@ impl CouchGameStore {
 }
 
 impl GameStore for CouchGameStore {
+    /// Persist a [`GameEntity`] into CouchDB, preserving revisions.
     fn save_game(&self, game: GameEntity) -> BoxFuture<'static, StorageResult<()>> {
         let store = self.clone();
         Box::pin(async move {
@@ -228,6 +235,7 @@ impl GameStore for CouchGameStore {
         })
     }
 
+    /// Persist a [`PlaylistEntity`] into CouchDB.
     fn save_playlist(&self, playlist: PlaylistEntity) -> BoxFuture<'static, StorageResult<()>> {
         let store = self.clone();
         Box::pin(async move {
@@ -240,6 +248,7 @@ impl GameStore for CouchGameStore {
         })
     }
 
+    /// Load a single [`GameEntity`] from CouchDB.
     fn find_game(&self, id: Uuid) -> BoxFuture<'static, StorageResult<Option<GameEntity>>> {
         let store = self.clone();
         Box::pin(async move {
@@ -249,6 +258,7 @@ impl GameStore for CouchGameStore {
         })
     }
 
+    /// Load a single [`PlaylistEntity`] from CouchDB.
     fn find_playlist(&self, id: Uuid) -> BoxFuture<'static, StorageResult<Option<PlaylistEntity>>> {
         let store = self.clone();
         Box::pin(async move {
@@ -258,6 +268,7 @@ impl GameStore for CouchGameStore {
         })
     }
 
+    /// Produce a list of known games comprising identifiers and titles.
     fn list_games(&self) -> BoxFuture<'static, StorageResult<Vec<(Uuid, String)>>> {
         let store = self.clone();
         Box::pin(async move {
@@ -274,6 +285,7 @@ impl GameStore for CouchGameStore {
         })
     }
 
+    /// Produce a list of known playlists comprising identifiers and names.
     fn list_playlists(&self) -> BoxFuture<'static, StorageResult<Vec<(Uuid, String)>>> {
         let store = self.clone();
         Box::pin(async move {
@@ -290,6 +302,7 @@ impl GameStore for CouchGameStore {
         })
     }
 
+    /// Ping the remote database to ensure the connection is healthy.
     fn health_check(&self) -> BoxFuture<'static, StorageResult<()>> {
         let store = self.clone();
         Box::pin(async move {
@@ -319,6 +332,7 @@ impl GameStore for CouchGameStore {
         })
     }
 
+    /// Attempt to recover connectivity by ensuring the database exists.
     fn try_reconnect(&self) -> BoxFuture<'static, StorageResult<()>> {
         let store = self.clone();
         Box::pin(async move { store.ensure_database().await.map_err(Into::into) })

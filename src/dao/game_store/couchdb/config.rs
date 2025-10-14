@@ -1,5 +1,6 @@
 use super::error::{CouchDaoError, CouchResult};
 
+/// Runtime configuration describing how to connect to CouchDB.
 #[derive(Debug, Clone)]
 pub struct CouchConfig {
     pub base_url: String,
@@ -9,6 +10,7 @@ pub struct CouchConfig {
 }
 
 impl CouchConfig {
+    /// Construct a configuration from explicit base URL and database name.
     pub fn new(base_url: impl Into<String>, database: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into(),
@@ -18,6 +20,7 @@ impl CouchConfig {
         }
     }
 
+    /// Attach basic-auth credentials to the configuration.
     pub fn with_credentials(
         mut self,
         username: impl Into<String>,
@@ -28,6 +31,7 @@ impl CouchConfig {
         self
     }
 
+    /// Build a configuration by reading the expected environment variables.
     pub fn from_env() -> CouchResult<Self> {
         let base_url =
             std::env::var("COUCH_BASE_URL").map_err(|_| CouchDaoError::MissingEnvVar {

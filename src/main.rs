@@ -54,6 +54,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Launch the storage supervisor task responsible for maintaining the MongoDB connection.
 #[allow(dead_code)]
 async fn spawn_mongo_supervisor(state: Arc<AppState>) -> anyhow::Result<()> {
     let config = Arc::new(MongoConfig::from_env().await?);
@@ -71,6 +72,7 @@ async fn spawn_mongo_supervisor(state: Arc<AppState>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Launch the storage supervisor task responsible for maintaining the CouchDB connection.
 async fn spawn_couch_supervisor(state: Arc<AppState>) -> anyhow::Result<()> {
     let config = Arc::new(CouchConfig::from_env()?);
 
