@@ -15,4 +15,5 @@ pub trait GameStore: Send + Sync {
     fn list_games(&self) -> BoxFuture<'static, StorageResult<Vec<(Uuid, String)>>>;
     fn list_playlists(&self) -> BoxFuture<'static, StorageResult<Vec<(Uuid, String)>>>;
     fn health_check(&self) -> BoxFuture<'static, StorageResult<()>>;
+    fn try_reconnect(&self) -> BoxFuture<'static, StorageResult<()>>;
 }

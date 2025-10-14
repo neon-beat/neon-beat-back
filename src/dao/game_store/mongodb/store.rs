@@ -1,28 +1,24 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use futures::{TryStreamExt, future::BoxFuture};
 use mongodb::{Client, Collection, Database, bson::doc, options::IndexOptions};
-use tokio::{
-    sync::RwLock,
-    time::{MissedTickBehavior, interval},
-};
-use tracing::{info, warn};
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use super::{
     config::MongoConfig,
+    connection::establish_connection,
     error::{MongoDaoError, MongoResult},
     models::{MongoGameDocument, doc_id},
 };
 use crate::dao::{
-    game_store::{GameStore, mongodb::connection::establish_connection},
+    game_store::GameStore,
     models::{GameEntity, PlaylistEntity},
     storage::StorageResult,
 };
 
 const GAME_COLLECTION_NAME: &str = "games";
 const PLAYLIST_COLLECTION_NAME: &str = "playlists";
-const HEALTH_CHECK_INTERVAL_SECS: u64 = 30;
 
 #[derive(Clone)]
 pub struct MongoGameStore {
@@ -39,6 +35,30 @@ struct MongoState {
     database: Database,
 }
 
+impl MongoInner {
+    async fn ping(&self) -> MongoResult<()> {
+        let database = {
+            let guard: tokio::sync::RwLockReadGuard<'_, MongoState> = self.state.read().await;
+            guard.database.clone()
+        };
+
+        database
+            .run_command(doc! { "ping": 1 })
+            .await
+            .map_err(|source| MongoDaoError::HealthPing { source })?;
+        Ok(())
+    }
+
+    async fn reconnect(&self) -> MongoResult<()> {
+        let (client, database) =
+            establish_connection(&self.config.options, &self.config.database_name).await?;
+        let mut guard = self.state.write().await;
+        guard.client = client;
+        guard.database = database;
+        Ok(())
+    }
+}
+
 impl MongoGameStore {
     /// Establish a connection to MongoDB and ensure indexes are present.
     pub async fn connect(config: MongoConfig) -> MongoResult<Self> {
@@ -52,7 +72,6 @@ impl MongoGameStore {
 
         let store = Self { inner };
         store.ensure_indexes().await?;
-        store.spawn_health_task();
         Ok(store)
     }
 
@@ -184,57 +203,6 @@ impl MongoGameStore {
             .map(|playlist| (playlist.id, playlist.name))
             .collect())
     }
-
-    async fn ping_once(state: &RwLock<MongoState>) -> MongoResult<()> {
-        let database = {
-            let guard = state.read().await;
-            guard.database.clone()
-        };
-
-        database
-            .run_command(doc! { "ping": 1 })
-            .await
-            .map_err(|source| MongoDaoError::HealthPing { source })?;
-        Ok(())
-    }
-
-    async fn reconnect(inner: &MongoInner) -> MongoResult<()> {
-        let (client, database) =
-            establish_connection(&inner.config.options, &inner.config.database_name).await?;
-        let mut guard = inner.state.write().await;
-        guard.client = client;
-        guard.database = database;
-        Ok(())
-    }
-
-    fn spawn_health_task(&self) {
-        let inner = Arc::downgrade(&self.inner);
-
-        tokio::spawn(async move {
-            let mut ticker = interval(Duration::from_secs(HEALTH_CHECK_INTERVAL_SECS));
-            ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
-
-            loop {
-                ticker.tick().await;
-
-                let Some(inner) = inner.upgrade() else {
-                    break;
-                };
-
-                if let Err(err) = Self::ping_once(&inner.state).await {
-                    warn!(error = %err, "MongoDB health check failed; attempting reconnect");
-                    match Self::reconnect(&inner).await {
-                        Ok(()) => info!("MongoDB connection re-established"),
-                        Err(err) => warn!(error = %err, "failed to reconnect to MongoDB"),
-                    }
-                }
-            }
-        });
-    }
-
-    async fn ping(&self) -> MongoResult<()> {
-        Self::ping_once(&self.inner.state).await
-    }
 }
 
 impl GameStore for MongoGameStore {
@@ -275,6 +243,11 @@ impl GameStore for MongoGameStore {
 
     fn health_check(&self) -> BoxFuture<'static, StorageResult<()>> {
         let store = self.clone();
-        Box::pin(async move { store.ping().await.map_err(Into::into) })
+        Box::pin(async move { store.inner.ping().await.map_err(Into::into) })
+    }
+
+    fn try_reconnect(&self) -> BoxFuture<'static, StorageResult<()>> {
+        let store = self.clone();
+        Box::pin(async move { store.inner.reconnect().await.map_err(Into::into) })
     }
 }

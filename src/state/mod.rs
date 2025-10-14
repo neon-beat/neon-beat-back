@@ -43,7 +43,8 @@ pub struct AppState {
     buzzers: DashMap<String, BuzzerConnection>,
     game: RwLock<GameStateMachine>,
     current_game: RwLock<Option<GameSession>>,
-    degraded: watch::Sender<bool>,
+    degraded_flag: RwLock<bool>,
+    degraded_tx: watch::Sender<bool>,
     transition_gate: Mutex<()>,
     transition_timeout: Option<Duration>,
 }
@@ -60,7 +61,8 @@ impl AppState {
             buzzers: DashMap::new(),
             game: RwLock::new(GameStateMachine::new()),
             current_game: RwLock::new(None),
-            degraded: degraded_tx,
+            degraded_flag: RwLock::new(true),
+            degraded_tx,
             transition_gate: Mutex::new(()),
             transition_timeout: Some(DEFAULT_TRANSITION_TIMEOUT),
         })
@@ -73,7 +75,7 @@ impl AppState {
     }
 
     /// Install a new game store implementation and leave degraded mode.
-    pub async fn install_game_store(&self, store: Arc<dyn GameStore>) {
+    pub async fn set_game_store(&self, store: Arc<dyn GameStore>) {
         {
             let mut guard = self.game_store.write().await;
             *guard = Some(store);
@@ -81,24 +83,14 @@ impl AppState {
         self.update_degraded(false).await;
     }
 
-    /// Remove the current game store and enter degraded mode.
-    pub async fn clear_game_store(&self) {
-        {
-            let mut guard = self.game_store.write().await;
-            guard.take();
-        }
-        self.update_degraded(true).await;
-    }
-
     /// Current degraded flag.
     pub async fn is_degraded(&self) -> bool {
-        let guard = self.game_store.read().await;
-        guard.is_none()
+        *self.degraded_flag.read().await
     }
 
     /// Subscribe to degraded mode updates.
     pub fn degraded_watcher(&self) -> watch::Receiver<bool> {
-        self.degraded.subscribe()
+        self.degraded_tx.subscribe()
     }
 
     /// Broadcast hub used for the public SSE stream.
@@ -132,12 +124,16 @@ impl AppState {
     }
 
     /// Update and broadcast the degraded flag when the value changes.
-    async fn update_degraded(&self, value: bool) {
-        if self.is_degraded().await == value {
-            return;
+    pub async fn update_degraded(&self, value: bool) {
+        {
+            let mut guard = self.degraded_flag.write().await;
+            if *guard == value {
+                return;
+            }
+            *guard = value;
         }
 
-        let _ = self.degraded.send(value);
+        let _ = self.degraded_tx.send(value);
     }
 
     /// Plan a transition to the shared game state machine, returning the plan.

@@ -320,4 +320,9 @@ impl GameStore for CouchGameStore {
             }
         })
     }
+
+    fn try_reconnect(&self) -> BoxFuture<'static, StorageResult<()>> {
+        let store = self.clone();
+        Box::pin(async move { store.ensure_database().await })
+    }
 }
