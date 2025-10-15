@@ -6,7 +6,7 @@ Neon Beat back is the Rust backend powering Neon Beat, a homemade blind test exp
 
 - **RESTful API**: Provides a well-defined RESTful API for programmatic access to its functionalities.
 - **Real-time communications**: Real-time communications via WebSockets for buzzers and Server-Sent Events for the public and admin UIs.
-- **MongoDB persistence**: Uses a MongoDB connection to keep playlists, teams, and game progress in sync. Playlists are stored in their own collection so games can reuse curated track lists without re-importing them each time.
+- **Configurable persistence**: Build with MongoDB or CouchDB support and select the active store per deployment. Keeps playlists, teams, and game progress in sync. Playlists are stored in their own collection so games can reuse curated track lists without re-importing them each time.
 - **Swagger UI**: The full OpenAPI document is generated with utoipa and served through Swagger UI (`/docs`) for quick manual testing.
 
 ## Architecture Overview
@@ -131,10 +131,34 @@ The server relies on a running MongoDB instance and the following optional envir
 |--------------|-----------------------------|-------------|
 | `MONGO_URI`  | `mongodb://localhost:27017` | Connection string used to create the MongoDB client. |
 | `MONGO_DB`   | `neon_beat`                 | Database name (only used when provided). |
+| `COUCH_BASE_URL` | – | Base URL for the CouchDB server (e.g. `http://localhost:5984`). |
+| `COUCH_DB`   | – | Database name created/used by the Couch backend. |
+| `COUCH_USERNAME` /<br>`COUCH_PASSWORD` | – | Optional basic-auth credentials for CouchDB. |
+| `NEON_STORE` | – | Required when both backends are compiled; set to `mongo` or `couch` to choose the store at runtime. If only one backend was compiled, the value is optional but must match when supplied. |
 | `PORT`       | `8080`                      | TCP port the HTTP server binds to. `SERVER_PORT` is also honoured for compatibility. |
 
+### Selecting a storage backend
+
+The backend ships with both storage implementations enabled by default. At startup:
+
+- If both features were compiled, set `NEON_STORE=mongo` or `NEON_STORE=couch` to choose the active store.
+- If only one feature was compiled (for a slimmer binary), `NEON_STORE` is optional, but any value you supply must still match the compiled backend.
+
+To build the binary with a single backend you can rely on Cargo features:
+
+```bash
+# Mongo-only build
+cargo build --release --no-default-features --features mongo-store
+
+# Couch-only build
+cargo build --release --no-default-features --features couch-store
+```
+
 ### Run locally
-1. Ensure MongoDB is running (configure `MONGO_URI`/`MONGO_DB` if needed).
+1. Decide which store to use and start the matching database:
+   - **MongoDB**: `export NEON_STORE=mongo` (when both backends are compiled) and ensure `MONGO_URI`/`MONGO_DB` point to a running instance.
+   - **CouchDB**: `export NEON_STORE=couch` (when both backends are compiled) and set `COUCH_BASE_URL`/`COUCH_DB` plus credentials if required.
+   - If the binary was built with only one backend, `NEON_STORE` can be omitted; it defaults to the compiled store.
 2. Start the backend:
    ```bash
    cargo run
@@ -155,6 +179,18 @@ Build the release image with Docker:
 
 ```bash
 docker build -t neon-beat-back .
+```
+
+To ship an image with a single backend, pass the feature flags through the build argument `CARGO_FEATURES` (the value is appended to each Cargo invocation):
+
+```bash
+# Mongo-only image
+docker build -t neon-beat-back \
+  --build-arg CARGO_FEATURES="--no-default-features --features mongo-store" .
+
+# Couch-only image
+docker build -t neon-beat-back \
+  --build-arg CARGO_FEATURES="--no-default-features --features couch-store" .
 ```
 
 For cross-compilation, provide a Rust target triple via the optional build argument:
@@ -214,7 +250,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Add song ID to MarkFieldRequest
 - [x] Implement a transaction system for state machine (prepare, to know if it is possible, then apply the waiting transaction when we have finished the processing)
 - [x] Migrate from MongoDB to CouchDB
-- [ ] Support multiple DB and choose the one at buildtime or runtime
+- [x] Support multiple DB and choose the one at buildtime or runtime
 - [ ] Team update (admin route) + team management at game load
 - [ ] Implement public routes:
    - [ ] get teams/players

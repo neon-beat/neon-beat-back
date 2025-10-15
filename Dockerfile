@@ -14,19 +14,20 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM build-base AS builder
 ARG BUILD_TARGET=""
+ARG CARGO_FEATURES=""
 RUN cargo install cargo-chef --locked
 WORKDIR /app
 COPY --from=chef /app/recipe.json /app/recipe.json
 RUN if [ -n "$BUILD_TARGET" ]; then rustup target add "$BUILD_TARGET"; fi
 # Build dependencies - this is the caching Docker layer
 RUN TARGET_ARG="${BUILD_TARGET:+--target $BUILD_TARGET}" && \
-    cargo chef cook --release --recipe-path /app/recipe.json $TARGET_ARG
+    cargo chef cook --release --recipe-path /app/recipe.json $TARGET_ARG $CARGO_FEATURES
 COPY Cargo.lock Cargo.lock
 COPY Cargo.toml Cargo.toml
 COPY src/ ./src
 # Build application
 RUN TARGET_ARG="${BUILD_TARGET:+--target $BUILD_TARGET}" && \
-    cargo build --release --locked $TARGET_ARG
+    cargo build --release --locked $TARGET_ARG $CARGO_FEATURES
 RUN TARGET_SUBDIR="${BUILD_TARGET:+$BUILD_TARGET/}" && \
     mkdir -p /app/bin && \
     cp "target/${TARGET_SUBDIR}release/neon-beat-back" /app/bin/neon-beat-back

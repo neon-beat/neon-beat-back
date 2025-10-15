@@ -1,4 +1,6 @@
+#[cfg(feature = "couch-store")]
 pub mod couchdb;
+#[cfg(feature = "mongo-store")]
 pub mod mongodb;
 
 use crate::dao::models::{GameEntity, PlaylistEntity};

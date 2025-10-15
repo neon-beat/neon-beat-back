@@ -5,7 +5,7 @@ mod models;
 mod store;
 
 pub use config::MongoConfig;
-pub use error::MongoDaoError;
+use error::MongoDaoError;
 pub use store::MongoGameStore;
 
 use crate::dao::storage::StorageError;
