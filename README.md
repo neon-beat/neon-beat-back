@@ -93,9 +93,10 @@ stateDiagram-v2
    - reveal the current song
    - mark a field as "found"
    - validate/invalidate an answer
-- **Public API (REST)**: 
+- **Public API (REST)**:
    - get teams infos
    - get current song infos
+   - get current game phase (with degraded flag)
 - **WebSocket connection for buzzers**
    - Buzzers connect to `GET /ws` and identify themselves by sending:
      ```json
@@ -252,10 +253,10 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Migrate from MongoDB to CouchDB
 - [x] Support multiple DB and choose the one at buildtime or runtime
 - [ ] Team update (admin route) + team management at game load
-- [ ] Implement public routes:
-   - [ ] get teams/players
-   - [ ] get song to find (& found fields)
-   - [ ] get game phase
+- [x] Implement public routes:
+   - [x] get teams/players
+   - [x] get song to find (& found fields)
+   - [x] get game phase
 - [ ] Reorganize routes if required
 - [ ] Add middleware for admin routes (check token)
 - [ ] Better management for errors

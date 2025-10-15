@@ -8,6 +8,9 @@ use utoipa::OpenApi;
         crate::routes::sse::public_stream,
         crate::routes::sse::admin_stream,
         crate::routes::websocket::ws_handler,
+        crate::routes::public::get_teams,
+        crate::routes::public::get_current_song,
+        crate::routes::public::get_game_phase,
         crate::routes::admin::list_games,
         crate::routes::admin::list_playlists,
         crate::routes::admin::create_playlist,
@@ -55,6 +58,9 @@ use utoipa::OpenApi;
             crate::dto::admin::StartGameResponse,
             crate::dto::admin::NextSongResponse,
             crate::dto::admin::StopGameResponse,
+            crate::dto::public::TeamsResponse,
+            crate::dto::public::CurrentSongResponse,
+            crate::dto::public::GamePhaseResponse,
         )
     ),
     tags(
@@ -63,6 +69,7 @@ use utoipa::OpenApi;
         (name = "buzzers", description = "WebSocket operations for buzzer devices"),
         (name = "game", description = "Game bootstrap operations"),
         (name = "admin", description = "Administrative controls for running games"),
+        (name = "public", description = "Public read-only projections for the current game state"),
     )
 )]
 pub struct ApiDoc;

@@ -2,6 +2,7 @@ pub mod admin_service;
 pub mod documentation;
 pub mod game_service;
 pub mod health_service;
+pub mod public_service;
 pub mod sse_events;
 pub mod sse_service;
 pub mod storage_supervisor;

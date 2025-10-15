@@ -5,6 +5,7 @@ use crate::state::SharedState;
 pub mod admin;
 pub mod docs;
 pub mod health;
+pub mod public;
 pub mod sse;
 pub mod websocket;
 
@@ -13,6 +14,7 @@ pub fn router(state: SharedState) -> Router<()> {
     let api_router = health::router()
         .merge(sse::router())
         .merge(websocket::router())
+        .merge(public::router())
         .merge(admin::router());
 
     let docs_router = docs::router(state.clone());

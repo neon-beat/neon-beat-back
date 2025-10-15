@@ -110,8 +110,10 @@ async fn spawn_couch_supervisor(state: Arc<AppState>) -> anyhow::Result<()> {
 #[derive(Debug, Clone, Copy)]
 enum StoreKind {
     #[cfg(feature = "mongo-store")]
+    /// Storage backed by MongoDB.
     Mongo,
     #[cfg(feature = "couch-store")]
+    /// Storage backed by CouchDB.
     Couch,
 }
 
