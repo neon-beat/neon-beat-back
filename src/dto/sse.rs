@@ -1,5 +1,6 @@
 use serde::Serialize;
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 #[derive(Clone, Debug)]
 /// Dispatched payload carried across SSE channels.
@@ -49,7 +50,9 @@ pub struct TeamsEvent {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+/// Summary of a team broadcast to SSE subscribers.
 pub struct TeamSummary {
+    pub id: Uuid,
     pub buzzer_id: String,
     pub name: String,
     pub score: i32,
@@ -106,6 +109,7 @@ pub struct PointFieldSnapshot {
 impl From<crate::state::game::Player> for TeamSummary {
     fn from(player: crate::state::game::Player) -> Self {
         Self {
+            id: player.id,
             buzzer_id: player.buzzer_id,
             name: player.name,
             score: player.score,

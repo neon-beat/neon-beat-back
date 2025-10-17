@@ -176,6 +176,7 @@ pub(crate) fn build_players(players: Vec<PlayerInput>) -> Result<Vec<Player>, Se
             }
 
             Ok(Player {
+                id: Uuid::new_v4(),
                 buzzer_id,
                 name: player.name,
                 score: 0,
