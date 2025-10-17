@@ -43,12 +43,12 @@ pub struct PointField {
 }
 
 /// Player info tracked during a game session.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Player {
     /// Stable identifier for this team/player.
     pub id: Uuid,
     /// Unique buzzer identifier (12 lowercase hexadecimal characters).
-    pub buzzer_id: String,
+    pub buzzer_id: Option<String>,
     /// Display name chosen for the player/team.
     pub name: String,
     /// Current score for the player.

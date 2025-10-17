@@ -65,7 +65,7 @@ pub struct GameSummary {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PlayerSummary {
     pub id: Uuid,
-    pub buzzer_id: String,
+    pub buzzer_id: Option<String>,
     pub name: String,
     pub score: i32,
 }

@@ -2,6 +2,8 @@
 
 Neon Beat back is the Rust backend powering Neon Beat, a homemade blind test experience built around playlists, teams, and fast-paced buzzer rounds.
 
+See [CHANGELOG](CHANGELOG.md) for detailed release notes.
+
 ## Highlights
 
 - **RESTful API**: Provides a well-defined RESTful API for programmatic access to its functionalities.
@@ -90,9 +92,15 @@ stateDiagram-v2
    - pause the current song
    - resume the current song
    - add/remove points to a team
+   - update team metadata (buzzer id, name, score)
    - reveal the current song
    - mark a field as "found"
    - validate/invalidate an answer
+- **Prep-phase team pairing**:
+   - allow creating/updating/deleting teams while the state machine is `GameRunning::Prep`
+   - enforce that buzzers are paired (or explicitly in pairing mode) before transitioning to `Playing`
+   - expose admin endpoints to enter/abort pairing mode, snapshot teams, and reassign buzzers with SSE notifications
+   - support rollback of pairing operations to restore the last known good snapshot on failure
 - **Public API (REST)**:
    - get teams infos
    - get current song infos
@@ -111,6 +119,99 @@ stateDiagram-v2
       - Game is paused and it's the team's turn to answer
       - Team's turn is finished and the game resumes
 - **SSE connection for frontends**: Admin and public frontends subscribe via `/sse/admin` and `/sse/public`. The admin stream issues a one-time token and enforces a single active admin connection.
+
+## Pairing workflow
+
+The buzzer pairing workflow lives inside the finite state machine so that API calls, SSE notifications, and WebSocket feedback stay in lock-step. A typical session looks like this:
+
+1. **Kick off pairing**
+   ```bash
+   curl -X POST http://localhost:8080/admin/teams/pairing \
+     -H 'content-type: application/json' \
+     -d '{ "first_team_id": "<uuid-of-team-to-start-with>" }'
+   ```
+   - The game enters `GameRunning::Prep(Pairing)` and snapshots the roster.
+   - Public and admin SSE streams broadcast `pairing.waiting` with the team that must claim a buzzer next.
+
+2. **Assign a buzzer**
+   - The highlighted team presses its buzzer (or an operator can simulate it).  
+   - The WebSocket client sends `{ "type": "buzz", "id": "<12-char buzzer id>" }`.
+   - The backend:
+     - Assigns the buzzer while clearing any conflicting assignment.
+     - Replies to the device with a `BuzzFeedback` payload (`{"id":"<buzzer id>","can_answer":true}`) so hardware can give immediate confirmation.
+     - Emits `pairing.assigned` containing the team UUID and the new buzzer ID.  
+     - Emits another `pairing.waiting` if more unpaired teams remain; otherwise it transitions back to `prep_ready`.
+
+3. **Handle deletions mid-pairing**
+   - `DELETE /admin/teams/{team_id}` now emits a lightweight `team.deleted` event on the public SSE stream.  
+   - If the removed team was the one currently pairing, the server automatically advances to the next unpaired team (broadcast through `pairing.waiting`) or ends pairing if everyone is assigned.
+
+4. **Abort pairing**
+   ```bash
+   curl -X POST http://localhost:8080/admin/teams/pairing/abort
+   ```
+   - Restores the snapshot captured when pairing began.
+   - Emits `pairing.restored` with the full roster before returning to `prep_ready`.
+   - Returns the restored roster as an array of `TeamSummary` objects so UIs can resynchronise without waiting for SSE.
+
+Public clients can still poll `/public/pairing-status`, but reacting to the SSE stream keeps both admin and public UIs in sync without reloading the complete roster.
+
+## Realtime interfaces
+
+### WebSocket `/ws` (buzzers)
+
+Buzzers maintain a single long-lived WebSocket connection. Each device **must** identify itself before sending buzz events.
+
+| Direction | Message type | Payload example | Notes |
+|-----------|--------------|-----------------|-------|
+| client → server | `{"type":"identification","id":"deadbeef0001"}` | 12 lowercase hex characters | Required immediately after connecting. |
+| server → client | `{"id":"deadbeef0001","status":"ready"}` (`BuzzerAck`) | – | Sent when identification succeeds. |
+| client → server | `{"type":"buzz","id":"deadbeef0001"}` | must reuse the identification id | Ignored unless the game is in `prep_ready`, `prep_pairing`, or `playing`. |
+| server → client | `{"id":"deadbeef0001","can_answer":true}` (`BuzzFeedback`) | `can_answer` becomes `true` during pairing when the team was expected, and during gameplay when the buzz grants the floor. |
+| server → client | `{"id":"deadbeef0001","can_answer":false}` (`BuzzFeedback`) | – | Returned when the buzz was rejected (wrong phase, duplicate during pairing, etc.). |
+| server → client | WebSocket close frame | – | Connection closed by the backend (e.g. admin kicked, duplicate connection); client should retry with exponential backoff. |
+
+Messages tagged with any other `type` are ignored.
+
+### Server-Sent Events
+
+Two SSE streams are available:
+
+- `GET /sse/public` – no authentication, receives public updates.
+- `GET /sse/admin` – requires a single active client; the first event contains an admin token that must be echoed by the frontend on subsequent REST calls.
+
+Every connection begins with a `handshake` event:
+
+```json
+event: handshake
+data: {"stream":"public","message":"public stream connected","degraded":false}
+```
+
+Admin streams include an extra `token` field in the same payload. When the storage backend drops out of availability the server emits `system_status` events:
+
+```json
+event: system_status
+data: {"degraded":true}
+```
+
+The remaining events represent gameplay changes. Payload types are defined in `src/dto/sse.rs`.
+
+| Event name | Payload | Stream(s) | Description |
+|------------|---------|-----------|-------------|
+| `fields_found` | `FieldsFoundEvent` | public | Updated list of discovered point/bonus fields for the current song. |
+| `answer_validation` | `AnswerValidationEvent` | public | Indicates whether the latest answer was accepted. |
+| `score_adjustment` | `TeamSummary` | public | Broadcast after manual score changes. |
+| `phase_changed` | `PhaseChangedEvent` | public + admin | FSM transition (optionally includes song snapshot, scoreboard, and paused buzzer id). |
+| `team.created` | `TeamCreatedEvent` | public + admin | Newly created team (payload wraps a `TeamSummary`). |
+| `team.updated` | `TeamUpdatedEvent` | public | Existing team metadata changed (name, buzzer, or score). |
+| `team.deleted` | `TeamDeletedEvent` | public | Team removed; payload only contains the team UUID. |
+| `game.session` | `GameSummary` | public | Full game snapshot (players, playlist ordering, timestamps). |
+| `pairing.waiting` | `PairingWaitingEvent` | public + admin | Announces which team should pair a buzzer next. |
+| `pairing.assigned` | `PairingAssignedEvent` | public + admin | Confirms a buzzer assignment during pairing. |
+| `pairing.restored` | `PairingRestoredEvent` | public | Snapshot broadcast after aborting pairing. |
+| `test.buzz` | `TestBuzzEvent` | public + admin | Emitted when a prep-mode test buzz is detected. |
+
+Keep-alive comments are sent every 15 seconds so most SSE clients will stay connected by default.
 
 ## Getting started
 
@@ -237,7 +338,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
    - [x] create game with existing playlist ID: INPUT is CreateGameRequest ; OUTPUT is the GameSummary and PlaylistSummary ; apply GameEvent::StartGame
    - [x] start game: OUTPUT is song to be found ; apply GameEvent::GameConfigured
    - [x] pause: OUTPUT is "paused" message ; apply GameEvent::Pause(PauseKind::Manual)
-   - [x] mark field as found: OUTPUT is the list of found fields ; only possible in GamePhase::GameRunning and if GameRunningPhase is not GameRunningPhase::Prep
+   - [x] mark field as found: OUTPUT is the list of found fields ; only possible in GamePhase::GameRunning and if GameRunningPhase is not GameRunningPhase::Prep(_)
    - [x] validate/invalidate answer: OUTPUT is "answered" message ; only possible in GamePhase::GameRunning(GameRunningPhase::Paused)
    - [x] add/remove points for a team: OUTPUT is the new score of the team ; only possible in GamePhase::GameRunning
    - [x] resume: OUTPUT is "resumed" message ; apply GameEvent::ContinuePlaying
@@ -252,11 +353,14 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Implement a transaction system for state machine (prepare, to know if it is possible, then apply the waiting transaction when we have finished the processing)
 - [x] Migrate from MongoDB to CouchDB
 - [x] Support multiple DB and choose the one at buildtime or runtime
-- [ ] Team update (admin route) + team management at game load
+- [x] Team management & team/buzzer pairing
 - [x] Implement public routes:
    - [x] get teams/players
    - [x] get song to find (& found fields)
    - [x] get game phase
+- [ ] Add more logs
+- [ ] Implement buzzer testing during GamePhase::GameRunning(GameRunningPhase::Prep(_)) (test buzz)
+- [ ] Debounce device buzzes (~250 ms) during pairing to avoid double assigns
 - [ ] Reorganize routes if required
 - [ ] Add middleware for admin routes (check token)
 - [ ] Better management for errors
@@ -264,12 +368,17 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [ ] Validate the WebSocket connection
 - [ ] Validate the SSE connection
 - [ ] Validate the MongoDB connection
+- [ ] Send encountered errors to admin SSE during WS handles
+- [ ] Remove unecessary pub(crate) functions
+- [ ] Rename Player to Team (or find a new name)
+- [ ] Replace Vec<Teams> by HashMap if it is better
+- [ ] Create game/playlist IDs from store
+- [ ] Review PlayerInput: is buzzer_id really needed ?
 - [ ] Migrate from DashMap to HashMap if DashMap is useless
 - [ ] Allow to create a game in degraded mode (save the session & playlist later)
-- [ ] Better management for panics
-- [ ] When a buzzer has the right to answer, send info to others that they don't have the right to buzz yet. When the buzzer ended its turn, send info to others that they  have the right to buzz now.
-- [ ] Allow to switch buzzer_id for a player
-- [ ] Update `mongo` value of `AppState ` to None (and send False to `degraded` watcher) each time a mongo function returns a connection error
+- [ ] Better management for panics & expects
+- [ ] When a buzzer has the right to answer, send info to others that they don't have the right to buzz yet. When the buzzer ended its turn, send info to others that they have the right to buzz now.
+- [ ] Update `game_store` value of `AppState ` and send False to `degraded` watcher each time a mongo function returns a connection error ?
 - [ ] Remove useless features of dependencies if found
 - [ ] Implement tests
 
@@ -280,3 +389,4 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - Do we want to add a timeout when a player has buzzed (to resume the game) ? Add an int config property (default: Infinite)
 - Do we want to prevent the previous buzzer to buzz again ? Add a bool config property (default: re-buzz authorized)
 - Do we want to serve the OpenAPI documentation as a Github Page ?
+- Do we want Game and Playlist name unicity ?
