@@ -339,13 +339,11 @@ pub async fn start_pairing(
     post,
     path = "/admin/teams/pairing/abort",
     tag = "admin",
-    responses((status = 200, description = "Pairing aborted", body = ActionResponse))
+    responses((status = 200, description = "Pairing aborted and roster restored", body = [TeamSummary]))
 )]
 pub async fn abort_pairing(
     State(state): State<SharedState>,
-) -> Result<Json<ActionResponse>, AppError> {
-    admin_service::abort_pairing(&state).await?;
-    Ok(Json(ActionResponse {
-        message: "pairing aborted".into(),
-    }))
+) -> Result<Json<Vec<TeamSummary>>, AppError> {
+    let roster = admin_service::abort_pairing(&state).await?;
+    Ok(Json(roster))
 }

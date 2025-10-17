@@ -45,12 +45,6 @@ pub struct SystemStatus {
     pub degraded: bool,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
-/// Payload carrying the list of teams when a game starts or is loaded.
-pub struct TeamsEvent {
-    pub teams: Vec<TeamSummary>,
-}
-
 #[derive(Debug, Serialize, ToSchema, Clone)]
 /// Summary of a team broadcast to SSE subscribers.
 pub struct TeamSummary {
@@ -138,6 +132,12 @@ pub struct TeamCreatedEvent {
 /// Event emitted when a team has been deleted.
 pub struct TeamDeletedEvent {
     pub team_id: Uuid,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+/// Event emitted when an existing team was updated (name, buzzer, or score).
+pub struct TeamUpdatedEvent {
+    pub team: TeamSummary,
 }
 
 impl From<crate::state::game::Player> for TeamSummary {

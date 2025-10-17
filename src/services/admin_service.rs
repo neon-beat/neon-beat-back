@@ -496,11 +496,9 @@ pub async fn create_team(
     };
 
     game.players.push(team.clone());
-    let roster = game.players.clone();
     drop(guard);
 
     state.persist_current_game().await?;
-    sse_events::broadcast_game_teams(state, roster.as_slice());
     let summary: TeamSummary = team.into();
     sse_events::broadcast_team_created(state, summary.clone());
 
@@ -559,15 +557,15 @@ pub async fn update_team(
         game.players.clone()
     };
 
-    let summary = roster
-        .iter()
+    let summary: TeamSummary = roster
+        .into_iter()
         .find(|player| player.id == team_id)
-        .map(|player| player.clone().into())
+        .map(|player| player.into())
         .expect("team must exist");
     drop(guard);
 
     state.persist_current_game().await?;
-    sse_events::broadcast_game_teams(state, roster.as_slice());
+    sse_events::broadcast_team_updated(state, summary.clone());
 
     Ok(summary)
 }
@@ -662,7 +660,7 @@ pub async fn start_pairing(
 }
 
 /// Abort an active pairing workflow and restore the previous roster.
-pub async fn abort_pairing(state: &SharedState) -> Result<(), ServiceError> {
+pub async fn abort_pairing(state: &SharedState) -> Result<Vec<TeamSummary>, ServiceError> {
     match ensure_prep_phase(state).await? {
         PrepStatus::Pairing(_) => {}
         PrepStatus::Ready => {
@@ -690,7 +688,7 @@ pub async fn abort_pairing(state: &SharedState) -> Result<(), ServiceError> {
     state.persist_current_game().await?;
     sse_events::broadcast_pairing_restored(state, roster.as_slice());
 
-    Ok(())
+    Ok(roster.into_iter().map(Into::into).collect())
 }
 
 /// Validate that the requested field is part of the song definition.

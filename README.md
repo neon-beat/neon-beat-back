@@ -152,6 +152,7 @@ The buzzer pairing workflow lives inside the finite state machine so that API ca
    ```
    - Restores the snapshot captured when pairing began.
    - Emits `pairing.restored` with the full roster before returning to `prep_ready`.
+   - Returns the restored roster as an array of `TeamSummary` objects so UIs can resynchronise without waiting for SSE.
 
 Public clients can still poll `/public/pairing-status`, but reacting to the SSE stream keeps both admin and public UIs in sync without reloading the complete roster.
 

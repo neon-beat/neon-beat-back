@@ -3,10 +3,13 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
-    dto::sse::{
-        AnswerValidationEvent, FieldsFoundEvent, PairingAssignedEvent, PairingRestoredEvent,
-        PairingWaitingEvent, PhaseChangedEvent, PointFieldSnapshot, ServerEvent, SongSnapshot,
-        TeamCreatedEvent, TeamDeletedEvent, TeamSummary, TeamsEvent, TestBuzzEvent,
+    dto::{
+        game::GameSummary,
+        sse::{
+            AnswerValidationEvent, FieldsFoundEvent, PairingAssignedEvent, PairingRestoredEvent,
+            PairingWaitingEvent, PhaseChangedEvent, PointFieldSnapshot, ServerEvent, SongSnapshot,
+            TeamCreatedEvent, TeamDeletedEvent, TeamSummary, TeamUpdatedEvent, TestBuzzEvent,
+        },
     },
     state::{
         SharedState,
@@ -15,26 +18,18 @@ use crate::{
     },
 };
 
-const EVENT_GAME_TEAMS: &str = "game_teams";
 const EVENT_FIELDS_FOUND: &str = "fields_found";
 const EVENT_ANSWER_VALIDATION: &str = "answer_validation";
 const EVENT_SCORE_ADJUSTMENT: &str = "score_adjustment";
 const EVENT_PHASE_CHANGED: &str = "phase_changed";
 const EVENT_TEAM_CREATED: &str = "team.created";
+const EVENT_TEAM_UPDATED: &str = "team.updated";
 const EVENT_PAIRING_WAITING: &str = "pairing.waiting";
 const EVENT_PAIRING_ASSIGNED: &str = "pairing.assigned";
 const EVENT_PAIRING_RESTORED: &str = "pairing.restored";
 const EVENT_TEST_BUZZ: &str = "test.buzz";
 const EVENT_TEAM_DELETED: &str = "team.deleted";
-
-/// Broadcast the list of teams to public subscribers (game created or loaded).
-pub fn broadcast_game_teams(state: &SharedState, teams: &[Player]) {
-    let payload = TeamsEvent {
-        teams: players_to_summaries(teams),
-    };
-    send_public_event(state, EVENT_GAME_TEAMS, &payload);
-    send_admin_event(state, EVENT_GAME_TEAMS, &payload);
-}
+const EVENT_GAME_SESSION: &str = "game.session";
 
 /// Broadcast the list of fields found for the current song.
 pub fn broadcast_fields_found(
@@ -49,21 +44,18 @@ pub fn broadcast_fields_found(
         bonus_fields: bonus_fields.to_vec(),
     };
     send_public_event(state, EVENT_FIELDS_FOUND, &payload);
-    send_admin_event(state, EVENT_FIELDS_FOUND, &payload);
 }
 
 /// Broadcast whether the current answer has been validated or invalidated.
 pub fn broadcast_answer_validation(state: &SharedState, valid: bool) {
     let payload = AnswerValidationEvent { valid };
     send_public_event(state, EVENT_ANSWER_VALIDATION, &payload);
-    send_admin_event(state, EVENT_ANSWER_VALIDATION, &payload);
 }
 
 /// Broadcast a score adjustment for a specific team.
 pub fn broadcast_score_adjustment(state: &SharedState, team: Player) {
     let payload = TeamSummary::from(team);
     send_public_event(state, EVENT_SCORE_ADJUSTMENT, &payload);
-    send_admin_event(state, EVENT_SCORE_ADJUSTMENT, &payload);
 }
 
 /// Broadcast the creation of a new team to admins.
@@ -77,6 +69,18 @@ pub fn broadcast_team_created(state: &SharedState, team: TeamSummary) {
 pub fn broadcast_team_deleted(state: &SharedState, team_id: Uuid) {
     let payload = TeamDeletedEvent { team_id };
     send_public_event(state, EVENT_TEAM_DELETED, &payload);
+}
+
+/// Broadcast that a team has been updated to public subscribers.
+pub fn broadcast_team_updated(state: &SharedState, team: TeamSummary) {
+    let payload = TeamUpdatedEvent { team };
+    send_public_event(state, EVENT_TEAM_UPDATED, &payload);
+}
+
+/// Broadcast a snapshot of the entire game session to public subscribers.
+pub fn broadcast_game_session(state: &SharedState, session: &GameSession) {
+    let summary: GameSummary = session.clone().into();
+    send_public_event(state, EVENT_GAME_SESSION, &summary);
 }
 
 /// Broadcast that the pairing workflow is waiting for the specified team.
@@ -102,7 +106,6 @@ pub fn broadcast_pairing_restored(state: &SharedState, snapshot: &[Player]) {
         snapshot: snapshot.iter().cloned().map(TeamSummary::from).collect(),
     };
     send_public_event(state, EVENT_PAIRING_RESTORED, &payload);
-    send_admin_event(state, EVENT_PAIRING_RESTORED, &payload);
 }
 
 /// Broadcast a test buzz event during prep ready mode.

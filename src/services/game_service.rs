@@ -93,7 +93,7 @@ pub async fn create_game(
         *slot = Some(game.clone());
     }
 
-    sse_events::broadcast_game_teams(state, &game.players);
+    sse_events::broadcast_game_session(state, &game);
 
     Ok(game.into())
 }
@@ -132,7 +132,7 @@ pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, Ser
         *slot = Some(game_session.clone());
     }
 
-    sse_events::broadcast_game_teams(state, &game_session.players);
+    sse_events::broadcast_game_session(state, &game_session);
 
     Ok(game_session.into())
 }
