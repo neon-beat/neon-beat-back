@@ -156,6 +156,63 @@ The buzzer pairing workflow lives inside the finite state machine so that API ca
 
 Public clients can still poll `/public/pairing-status`, but reacting to the SSE stream keeps both admin and public UIs in sync without reloading the complete roster.
 
+## Realtime interfaces
+
+### WebSocket `/ws` (buzzers)
+
+Buzzers maintain a single long-lived WebSocket connection. Each device **must** identify itself before sending buzz events.
+
+| Direction | Message type | Payload example | Notes |
+|-----------|--------------|-----------------|-------|
+| client → server | `{"type":"identification","id":"deadbeef0001"}` | 12 lowercase hex characters | Required immediately after connecting. |
+| server → client | `{"id":"deadbeef0001","status":"ready"}` (`BuzzerAck`) | – | Sent when identification succeeds. |
+| client → server | `{"type":"buzz","id":"deadbeef0001"}` | must reuse the identification id | Ignored unless the game is in `prep_ready`, `prep_pairing`, or `playing`. |
+| server → client | `{"id":"deadbeef0001","can_answer":true}` (`BuzzFeedback`) | `can_answer` becomes `true` during pairing when the team was expected, and during gameplay when the buzz grants the floor. |
+| server → client | `{"id":"deadbeef0001","can_answer":false}` (`BuzzFeedback`) | – | Returned when the buzz was rejected (wrong phase, duplicate during pairing, etc.). |
+| server → client | WebSocket close frame | – | Connection closed by the backend (e.g. admin kicked, duplicate connection); client should retry with exponential backoff. |
+
+Messages tagged with any other `type` are ignored.
+
+### Server-Sent Events
+
+Two SSE streams are available:
+
+- `GET /sse/public` – no authentication, receives public updates.
+- `GET /sse/admin` – requires a single active client; the first event contains an admin token that must be echoed by the frontend on subsequent REST calls.
+
+Every connection begins with a `handshake` event:
+
+```json
+event: handshake
+data: {"stream":"public","message":"public stream connected","degraded":false}
+```
+
+Admin streams include an extra `token` field in the same payload. When the storage backend drops out of availability the server emits `system_status` events:
+
+```json
+event: system_status
+data: {"degraded":true}
+```
+
+The remaining events represent gameplay changes. Payload types are defined in `src/dto/sse.rs`.
+
+| Event name | Payload | Stream(s) | Description |
+|------------|---------|-----------|-------------|
+| `fields_found` | `FieldsFoundEvent` | public | Updated list of discovered point/bonus fields for the current song. |
+| `answer_validation` | `AnswerValidationEvent` | public | Indicates whether the latest answer was accepted. |
+| `score_adjustment` | `TeamSummary` | public | Broadcast after manual score changes. |
+| `phase_changed` | `PhaseChangedEvent` | public + admin | FSM transition (optionally includes song snapshot, scoreboard, and paused buzzer id). |
+| `team.created` | `TeamCreatedEvent` | public + admin | Newly created team (payload wraps a `TeamSummary`). |
+| `team.updated` | `TeamUpdatedEvent` | public | Existing team metadata changed (name, buzzer, or score). |
+| `team.deleted` | `TeamDeletedEvent` | public | Team removed; payload only contains the team UUID. |
+| `game.session` | `GameSummary` | public | Full game snapshot (players, playlist ordering, timestamps). |
+| `pairing.waiting` | `PairingWaitingEvent` | public + admin | Announces which team should pair a buzzer next. |
+| `pairing.assigned` | `PairingAssignedEvent` | public + admin | Confirms a buzzer assignment during pairing. |
+| `pairing.restored` | `PairingRestoredEvent` | public | Snapshot broadcast after aborting pairing. |
+| `test.buzz` | `TestBuzzEvent` | public + admin | Emitted when a prep-mode test buzz is detected. |
+
+Keep-alive comments are sent every 15 seconds so most SSE clients will stay connected by default.
+
 ## Getting started
 
 ### Prerequisites
