@@ -11,6 +11,7 @@ use utoipa::OpenApi;
         crate::routes::public::get_teams,
         crate::routes::public::get_current_song,
         crate::routes::public::get_game_phase,
+        crate::routes::public::get_pairing_status,
         crate::routes::admin::list_games,
         crate::routes::admin::list_playlists,
         crate::routes::admin::create_playlist,
@@ -27,6 +28,11 @@ use utoipa::OpenApi;
         crate::routes::admin::mark_field_found,
         crate::routes::admin::validate_answer,
         crate::routes::admin::adjust_score,
+        crate::routes::admin::create_team,
+        crate::routes::admin::update_team,
+        crate::routes::admin::delete_team,
+        crate::routes::admin::start_pairing,
+        crate::routes::admin::abort_pairing,
     ),
     components(
         schemas(
@@ -45,6 +51,7 @@ use utoipa::OpenApi;
             crate::dto::sse::SystemStatus,
             crate::dto::sse::Handshake,
             crate::dto::sse::TeamSummary,
+            crate::dto::sse::TeamDeletedEvent,
             crate::dto::admin::GameListItem,
             crate::dto::admin::PlaylistListItem,
             crate::dto::admin::CreateGameRequest,
@@ -58,9 +65,14 @@ use utoipa::OpenApi;
             crate::dto::admin::StartGameResponse,
             crate::dto::admin::NextSongResponse,
             crate::dto::admin::StopGameResponse,
+            crate::dto::admin::CreateTeamRequest,
+            crate::dto::admin::UpdateTeamRequest,
+            crate::dto::admin::StartPairingRequest,
+            crate::dto::phase::VisibleGamePhase,
             crate::dto::public::TeamsResponse,
             crate::dto::public::CurrentSongResponse,
             crate::dto::public::GamePhaseResponse,
+            crate::dto::public::PairingStatusResponse,
         )
     ),
     tags(

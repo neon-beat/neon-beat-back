@@ -1,18 +1,21 @@
 use axum::{
     Json, Router,
     extract::{Path, State},
-    routing::{get, post},
+    http::StatusCode,
+    routing::{get, post, put},
 };
 use uuid::Uuid;
 
 use crate::{
     dto::{
         admin::{
-            ActionResponse, AnswerValidationRequest, CreateGameRequest, FieldsFoundResponse,
-            GameListItem, MarkFieldRequest, NextSongResponse, PlaylistListItem,
-            ScoreAdjustmentRequest, ScoreUpdateResponse, StartGameResponse, StopGameResponse,
+            ActionResponse, AnswerValidationRequest, CreateGameRequest, CreateTeamRequest,
+            FieldsFoundResponse, GameListItem, MarkFieldRequest, NextSongResponse,
+            PlaylistListItem, ScoreAdjustmentRequest, ScoreUpdateResponse, StartGameResponse,
+            StartPairingRequest, StopGameResponse, UpdateTeamRequest,
         },
         game::{CreateGameWithPlaylistRequest, GameSummary, PlaylistInput, PlaylistSummary},
+        sse::TeamSummary,
     },
     error::AppError,
     services::admin_service,
@@ -42,6 +45,10 @@ pub fn router() -> Router<SharedState> {
         .route("/admin/game/fields/found", post(mark_field_found))
         .route("/admin/game/answer", post(validate_answer))
         .route("/admin/game/score", post(adjust_score))
+        .route("/admin/teams", post(create_team))
+        .route("/admin/teams/{id}", put(update_team).delete(delete_team))
+        .route("/admin/teams/pairing", post(start_pairing))
+        .route("/admin/teams/pairing/abort", post(abort_pairing))
 }
 
 /// Retrieve all games known to the system for administration purposes.
@@ -264,4 +271,81 @@ pub async fn adjust_score(
     Json(payload): Json<ScoreAdjustmentRequest>,
 ) -> Result<Json<ScoreUpdateResponse>, AppError> {
     Ok(Json(admin_service::adjust_score(&state, payload).await?))
+}
+
+#[utoipa::path(
+    post,
+    path = "/admin/teams",
+    tag = "admin",
+    request_body = CreateTeamRequest,
+    responses((status = 200, description = "Team created", body = TeamSummary))
+)]
+pub async fn create_team(
+    State(state): State<SharedState>,
+    Json(payload): Json<CreateTeamRequest>,
+) -> Result<Json<TeamSummary>, AppError> {
+    let summary = admin_service::create_team(&state, payload).await?;
+    Ok(Json(summary))
+}
+
+#[utoipa::path(
+    put,
+    path = "/admin/teams/{id}",
+    tag = "admin",
+    params(("id" = Uuid, Path, description = "Identifier of the team to update")),
+    request_body = UpdateTeamRequest,
+    responses((status = 200, description = "Team updated", body = TeamSummary))
+)]
+pub async fn update_team(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateTeamRequest>,
+) -> Result<Json<TeamSummary>, AppError> {
+    let summary = admin_service::update_team(&state, id, payload).await?;
+    Ok(Json(summary))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/admin/teams/{id}",
+    tag = "admin",
+    params(("id" = Uuid, Path, description = "Identifier of the team to delete")),
+    responses((status = 204, description = "Team deleted"))
+)]
+pub async fn delete_team(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    admin_service::delete_team(&state, id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/admin/teams/pairing",
+    tag = "admin",
+    request_body = StartPairingRequest,
+    responses((status = 202, description = "Pairing started"))
+)]
+pub async fn start_pairing(
+    State(state): State<SharedState>,
+    Json(payload): Json<StartPairingRequest>,
+) -> Result<StatusCode, AppError> {
+    admin_service::start_pairing(&state, payload).await?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+#[utoipa::path(
+    post,
+    path = "/admin/teams/pairing/abort",
+    tag = "admin",
+    responses((status = 200, description = "Pairing aborted", body = ActionResponse))
+)]
+pub async fn abort_pairing(
+    State(state): State<SharedState>,
+) -> Result<Json<ActionResponse>, AppError> {
+    admin_service::abort_pairing(&state).await?;
+    Ok(Json(ActionResponse {
+        message: "pairing aborted".into(),
+    }))
 }

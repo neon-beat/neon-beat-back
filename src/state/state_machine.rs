@@ -3,6 +3,8 @@ use std::time::Instant;
 use thiserror::Error;
 use uuid::Uuid;
 
+use crate::state::game::Player;
+
 /// High-level phases the game can be in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GamePhase {
@@ -18,13 +20,26 @@ pub enum GamePhase {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GameRunningPhase {
     /// Pre-game configuration: teams, playlist, and assets are set up.
-    Prep,
+    Prep(PrepStatus),
     /// Actively playing the current song, buzzers enabled.
     Playing,
     /// Game is paused either manually or because a team buzzed in.
     Paused(PauseKind),
     /// The current song (or answer) is being revealed.
     Reveal,
+}
+
+/// Prep sub-mode data (ready or pairing with session data).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PrepStatus {
+    Ready,
+    Pairing(PairingSession),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PairingSession {
+    pub pairing_team_id: Uuid,
+    pub snapshot: Vec<Player>,
 }
 
 /// Represents why the game entered a paused state.
@@ -50,6 +65,10 @@ pub enum FinishReason {
 pub enum GameEvent {
     /// GM starts the game from the idle state.
     StartGame,
+    /// Begin the pairing workflow while in prep.
+    PairingStarted(PairingSession),
+    /// Exit the pairing workflow and return to ready prep.
+    PairingFinished,
     /// Configuration is done; enter active gameplay.
     GameConfigured,
     /// Pause gameplay, either manually or because of a buzz.
@@ -151,6 +170,24 @@ impl GameStateMachine {
         self.phase.clone()
     }
 
+    pub fn pairing_session(&self) -> Option<&PairingSession> {
+        match &self.phase {
+            GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Pairing(session))) => {
+                Some(session)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn pairing_session_mut(&mut self) -> Option<&mut PairingSession> {
+        match &mut self.phase {
+            GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Pairing(session))) => {
+                Some(session)
+            }
+            _ => None,
+        }
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             phase: self.phase.clone(),
@@ -233,11 +270,20 @@ impl GameStateMachine {
     fn compute_transition(&self, event: GameEvent) -> Result<GamePhase, InvalidTransition> {
         let next = match (self.phase.clone(), event) {
             (GamePhase::Idle, GameEvent::StartGame) => {
-                GamePhase::GameRunning(GameRunningPhase::Prep)
+                GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Ready))
             }
-            (GamePhase::GameRunning(GameRunningPhase::Prep), GameEvent::GameConfigured) => {
-                GamePhase::GameRunning(GameRunningPhase::Playing)
-            }
+            (
+                GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Ready)),
+                GameEvent::PairingStarted(session),
+            ) => GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Pairing(session))),
+            (
+                GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Pairing(_))),
+                GameEvent::PairingFinished,
+            ) => GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Ready)),
+            (
+                GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Ready)),
+                GameEvent::GameConfigured,
+            ) => GamePhase::GameRunning(GameRunningPhase::Playing),
             (GamePhase::GameRunning(GameRunningPhase::Playing), GameEvent::Pause(kind)) => {
                 GamePhase::GameRunning(GameRunningPhase::Paused(kind))
             }
@@ -283,7 +329,7 @@ mod tests {
 
         assert_eq!(
             apply(&mut sm, GameEvent::StartGame),
-            GamePhase::GameRunning(GameRunningPhase::Prep)
+            GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Ready))
         );
         assert_eq!(
             apply(&mut sm, GameEvent::GameConfigured),
@@ -361,6 +407,46 @@ mod tests {
         let plan = sm.plan(GameEvent::Reveal).unwrap();
         let next = sm.apply(plan.id).unwrap();
         assert_eq!(next, GamePhase::GameRunning(GameRunningPhase::Reveal));
+    }
+
+    #[test]
+    fn pairing_transitions_enforced() {
+        let mut sm = GameStateMachine::new();
+        let pairing_session = PairingSession {
+            pairing_team_id: Uuid::new_v4(),
+            snapshot: Vec::new(),
+        };
+
+        assert_eq!(
+            apply(&mut sm, GameEvent::StartGame),
+            GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Ready))
+        );
+
+        assert_eq!(
+            apply(&mut sm, GameEvent::PairingStarted(pairing_session.clone())),
+            GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Pairing(
+                pairing_session.clone()
+            )))
+        );
+
+        let err = sm.plan(GameEvent::GameConfigured).unwrap_err();
+        match err {
+            PlanError::InvalidTransition(InvalidTransition { from, event }) => {
+                assert_eq!(
+                    from,
+                    GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Pairing(
+                        pairing_session.clone()
+                    )))
+                );
+                assert_eq!(event, GameEvent::GameConfigured);
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        assert_eq!(
+            apply(&mut sm, GameEvent::PairingFinished),
+            GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Ready))
+        );
     }
 
     #[test]

@@ -152,15 +152,7 @@ pub(crate) fn build_players(players: Vec<PlayerInput>) -> Result<Vec<Player>, Se
     players
         .into_iter()
         .map(|player| {
-            let mut buzzer_id = player.buzzer_id.to_lowercase();
-            buzzer_id.retain(|c| !c.is_whitespace());
-
-            if !is_valid_buzzer_id(&buzzer_id) {
-                return Err(ServiceError::InvalidInput(format!(
-                    "invalid buzzer id `{}`: expected {} lowercase hex characters",
-                    player.buzzer_id, BUZZER_ID_LENGTH
-                )));
-            }
+            let buzzer_id = sanitize_buzzer_id(&player.buzzer_id)?;
 
             if !seen_ids.insert(buzzer_id.clone()) {
                 return Err(ServiceError::InvalidInput(format!(
@@ -177,7 +169,7 @@ pub(crate) fn build_players(players: Vec<PlayerInput>) -> Result<Vec<Player>, Se
 
             Ok(Player {
                 id: Uuid::new_v4(),
-                buzzer_id,
+                buzzer_id: Some(buzzer_id),
                 name: player.name,
                 score: 0,
             })
@@ -294,4 +286,19 @@ fn validate_persisted_game(
 
 fn is_valid_buzzer_id(value: &str) -> bool {
     value.len() == BUZZER_ID_LENGTH && value.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'))
+}
+
+/// Normalise and validate a buzzer identifier (lowercase hex, no whitespace).
+pub(crate) fn sanitize_buzzer_id(raw: &str) -> Result<String, ServiceError> {
+    let mut buzzer_id = raw.to_lowercase();
+    buzzer_id.retain(|c| !c.is_whitespace());
+
+    if !is_valid_buzzer_id(&buzzer_id) {
+        return Err(ServiceError::InvalidInput(format!(
+            "invalid buzzer id `{}`: expected {} lowercase hex characters",
+            raw, BUZZER_ID_LENGTH
+        )));
+    }
+
+    Ok(buzzer_id)
 }

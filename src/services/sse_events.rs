@@ -1,10 +1,12 @@
 use serde::Serialize;
 use tracing::warn;
+use uuid::Uuid;
 
 use crate::{
     dto::sse::{
-        AnswerValidationEvent, FieldsFoundEvent, PhaseChangedEvent, PhaseSnapshot,
-        PointFieldSnapshot, ServerEvent, SongSnapshot, TeamSummary, TeamsEvent,
+        AnswerValidationEvent, FieldsFoundEvent, PairingAssignedEvent, PairingRestoredEvent,
+        PairingWaitingEvent, PhaseChangedEvent, PointFieldSnapshot, ServerEvent, SongSnapshot,
+        TeamCreatedEvent, TeamDeletedEvent, TeamSummary, TeamsEvent, TestBuzzEvent,
     },
     state::{
         SharedState,
@@ -18,6 +20,12 @@ const EVENT_FIELDS_FOUND: &str = "fields_found";
 const EVENT_ANSWER_VALIDATION: &str = "answer_validation";
 const EVENT_SCORE_ADJUSTMENT: &str = "score_adjustment";
 const EVENT_PHASE_CHANGED: &str = "phase_changed";
+const EVENT_TEAM_CREATED: &str = "team.created";
+const EVENT_PAIRING_WAITING: &str = "pairing.waiting";
+const EVENT_PAIRING_ASSIGNED: &str = "pairing.assigned";
+const EVENT_PAIRING_RESTORED: &str = "pairing.restored";
+const EVENT_TEST_BUZZ: &str = "test.buzz";
+const EVENT_TEAM_DELETED: &str = "team.deleted";
 
 /// Broadcast the list of teams to public subscribers (game created or loaded).
 pub fn broadcast_game_teams(state: &SharedState, teams: &[Player]) {
@@ -58,6 +66,52 @@ pub fn broadcast_score_adjustment(state: &SharedState, team: Player) {
     send_admin_event(state, EVENT_SCORE_ADJUSTMENT, &payload);
 }
 
+/// Broadcast the creation of a new team to admins.
+pub fn broadcast_team_created(state: &SharedState, team: TeamSummary) {
+    let payload = TeamCreatedEvent { team };
+    send_public_event(state, EVENT_TEAM_CREATED, &payload);
+    send_admin_event(state, EVENT_TEAM_CREATED, &payload);
+}
+
+/// Broadcast that a team has been deleted to public subscribers.
+pub fn broadcast_team_deleted(state: &SharedState, team_id: Uuid) {
+    let payload = TeamDeletedEvent { team_id };
+    send_public_event(state, EVENT_TEAM_DELETED, &payload);
+}
+
+/// Broadcast that the pairing workflow is waiting for the specified team.
+pub fn broadcast_pairing_waiting(state: &SharedState, team_id: Uuid) {
+    let payload = PairingWaitingEvent { team_id };
+    send_public_event(state, EVENT_PAIRING_WAITING, &payload);
+    send_admin_event(state, EVENT_PAIRING_WAITING, &payload);
+}
+
+/// Broadcast that a buzzer has been assigned during pairing.
+pub fn broadcast_pairing_assigned(state: &SharedState, team_id: Uuid, buzzer_id: &str) {
+    let payload = PairingAssignedEvent {
+        team_id,
+        buzzer_id: buzzer_id.to_string(),
+    };
+    send_public_event(state, EVENT_PAIRING_ASSIGNED, &payload);
+    send_admin_event(state, EVENT_PAIRING_ASSIGNED, &payload);
+}
+
+/// Broadcast that pairing snapshot was restored.
+pub fn broadcast_pairing_restored(state: &SharedState, snapshot: &[Player]) {
+    let payload = PairingRestoredEvent {
+        snapshot: snapshot.iter().cloned().map(TeamSummary::from).collect(),
+    };
+    send_public_event(state, EVENT_PAIRING_RESTORED, &payload);
+    send_admin_event(state, EVENT_PAIRING_RESTORED, &payload);
+}
+
+/// Broadcast a test buzz event during prep ready mode.
+pub fn broadcast_test_buzz(state: &SharedState, team_id: Uuid) {
+    let payload = TestBuzzEvent { team_id };
+    send_public_event(state, EVENT_TEST_BUZZ, &payload);
+    send_admin_event(state, EVENT_TEST_BUZZ, &payload);
+}
+
 /// Broadcast a gameplay phase change notification.
 pub async fn broadcast_phase_changed(state: &SharedState, phase: &GamePhase) {
     if let Some(snapshot) = build_phase_changed_event(state, phase).await {
@@ -88,7 +142,7 @@ async fn build_phase_changed_event(
     state: &SharedState,
     phase: &GamePhase,
 ) -> Option<PhaseChangedEvent> {
-    let kind = phase_kind(phase);
+    let kind = phase.into();
     let paused_buzzer = match phase {
         GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { id })) => {
             Some(id.clone())
@@ -108,23 +162,11 @@ async fn build_phase_changed_event(
     };
 
     Some(PhaseChangedEvent {
-        phase: PhaseSnapshot { kind },
+        phase: kind,
         song,
         scoreboard,
         paused_buzzer,
     })
-}
-
-fn phase_kind(phase: &GamePhase) -> String {
-    match phase {
-        GamePhase::Idle => "idle",
-        GamePhase::ShowScores => "scores",
-        GamePhase::GameRunning(GameRunningPhase::Prep) => "prep",
-        GamePhase::GameRunning(GameRunningPhase::Playing) => "playing",
-        GamePhase::GameRunning(GameRunningPhase::Paused(_)) => "pause",
-        GamePhase::GameRunning(GameRunningPhase::Reveal) => "reveal",
-    }
-    .to_string()
 }
 
 fn song_snapshot_for_phase(game: &GameSession, phase: &GamePhase) -> Option<SongSnapshot> {

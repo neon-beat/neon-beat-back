@@ -4,13 +4,22 @@ use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use crate::{
-    dto::ws::{BuzzFeedback, BuzzerAck, BuzzerInboundMessage},
+    dto::{
+        sse::TeamSummary,
+        ws::{BuzzFeedback, BuzzerAck, BuzzerInboundMessage},
+    },
     error::ServiceError,
+    services::{
+        pairing::{PairingSessionUpdate, apply_pairing_update, handle_pairing_progress},
+        sse_events,
+    },
     state::{
         BuzzerConnection, SharedState,
-        state_machine::{GameEvent, PauseKind},
+        game::Player,
+        state_machine::{GameEvent, GamePhase, GameRunningPhase, PauseKind, PrepStatus},
         transitions::run_transition_with_broadcast,
     },
 };
@@ -177,12 +186,113 @@ pub fn send_message_to_websocket<T>(
 
 /// Process a buzz coming from a buzzer connection, returning whether the team can answer.
 pub async fn handle_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), ServiceError> {
+    match state.state_machine_phase().await {
+        GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Ready)) => {
+            handle_prep_ready_buzz(state, buzzer_id).await
+        }
+        GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Pairing(_))) => {
+            handle_prep_pairing_buzz(state, buzzer_id).await
+        }
+        GamePhase::GameRunning(GameRunningPhase::Playing) => {
+            handle_playing_buzz(state, buzzer_id).await
+        }
+        _ => Err(ServiceError::InvalidState(
+            "buzz events are ignored outside of running phases".into(),
+        )),
+    }
+}
+
+async fn handle_prep_ready_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), ServiceError> {
+    let mut guard = state.current_game().write().await;
+    let game = guard
+        .as_mut()
+        .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
+
+    if let Some(team) = game
+        .players
+        .iter()
+        .find(|player| player.buzzer_id.as_deref() == Some(buzzer_id))
+        .cloned()
+    {
+        sse_events::broadcast_test_buzz(state, team.id);
+    } else if state.all_teams_paired(&game.players) {
+        let new_team = Player {
+            id: Uuid::new_v4(),
+            buzzer_id: Some(buzzer_id.to_string()),
+            name: format!("Team {}", game.players.len() + 1),
+            score: 0,
+        };
+
+        let summary = TeamSummary::from(new_team.clone());
+        game.players.push(new_team);
+
+        state.persist_current_game().await?;
+        sse_events::broadcast_team_created(state, summary.clone());
+    } // Else, do nothing
+    Ok(())
+}
+
+/// Advance the pairing workflow when a buzzer is assigned during the prep pairing phase.
+async fn handle_prep_pairing_buzz(
+    state: &SharedState,
+    buzzer_id: &str,
+) -> Result<(), ServiceError> {
+    let pairing_session = state
+        .pairing_session()
+        .await
+        .ok_or_else(|| ServiceError::InvalidState("pairing workflow lost session state".into()))?;
+    let team_id = pairing_session.pairing_team_id;
+
+    let mut guard = state.current_game().write().await;
+    let game = guard
+        .as_mut()
+        .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
+
+    let team = game
+        .players
+        .iter_mut()
+        .find(|player| player.id == team_id)
+        .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
+    team.buzzer_id = Some(buzzer_id.to_string());
+
+    for player in game.players.iter_mut() {
+        if player.id != team_id && player.buzzer_id.as_deref() == Some(buzzer_id) {
+            player.buzzer_id = None;
+        }
+    }
+
+    let roster = game.players.clone();
+    drop(guard);
+
+    let pairing_progress =
+        apply_pairing_update(state, PairingSessionUpdate::Assigned { team_id, roster })
+            .await?
+            .ok_or_else(|| {
+                ServiceError::InvalidState("pairing target changed during update".into())
+            })?;
+
+    state.persist_current_game().await?;
+    sse_events::broadcast_pairing_assigned(state, team_id, buzzer_id);
+    handle_pairing_progress(state, pairing_progress).await?;
+
+    Ok(())
+}
+
+/// Buzzer identifiers must be 12 lowercase hexadecimal characters with no separators.
+fn is_valid_buzzer_id(value: &str) -> bool {
+    value.len() == 12
+        && value
+            .chars()
+            .all(|c| c.is_ascii_digit() || matches!(c, 'a'..='f'))
+}
+
+async fn handle_playing_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), ServiceError> {
     let player_known = {
         let guard = state.current_game().read().await;
         guard.as_ref().is_some_and(|game| {
             game.players
                 .iter()
-                .any(|player| player.buzzer_id == buzzer_id)
+                .any(|player| player.buzzer_id.as_deref() == Some(buzzer_id))
         })
     };
 
@@ -200,14 +310,6 @@ pub async fn handle_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), Ser
         move || async move { Ok(()) },
     )
     .await
-}
-
-/// Buzzer identifiers must be 12 lowercase hexadecimal characters with no separators.
-fn is_valid_buzzer_id(value: &str) -> bool {
-    value.len() == 12
-        && value
-            .chars()
-            .all(|c| c.is_ascii_digit() || matches!(c, 'a'..='f'))
 }
 
 /// Ensure the writer task winds down before we return from the socket handler.
