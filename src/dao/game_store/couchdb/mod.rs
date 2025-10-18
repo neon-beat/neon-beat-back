@@ -1,6 +1,7 @@
 mod config;
 mod error;
 mod models;
+mod song_map;
 mod store;
 
 pub use config::CouchConfig;

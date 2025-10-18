@@ -1,5 +1,8 @@
 use serde::Serialize;
 use utoipa::ToSchema;
+use uuid::Uuid;
+
+use crate::dto::phase::VisibleGamePhase;
 
 #[derive(Clone, Debug)]
 /// Dispatched payload carried across SSE channels.
@@ -42,15 +45,11 @@ pub struct SystemStatus {
     pub degraded: bool,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
-/// Payload carrying the list of teams when a game starts or is loaded.
-pub struct TeamsEvent {
-    pub teams: Vec<TeamSummary>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, ToSchema, Clone)]
+/// Summary of a team broadcast to SSE subscribers.
 pub struct TeamSummary {
-    pub buzzer_id: String,
+    pub id: Uuid,
+    pub buzzer_id: Option<String>,
     pub name: String,
     pub score: i32,
 }
@@ -72,18 +71,13 @@ pub struct AnswerValidationEvent {
 #[derive(Debug, Serialize, ToSchema)]
 /// Broadcast whenever the gameplay phase changes.
 pub struct PhaseChangedEvent {
-    pub phase: PhaseSnapshot,
+    pub phase: VisibleGamePhase,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub song: Option<SongSnapshot>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scoreboard: Option<Vec<TeamSummary>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paused_buzzer: Option<String>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct PhaseSnapshot {
-    pub kind: String,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -103,9 +97,53 @@ pub struct PointFieldSnapshot {
     pub points: u8,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+/// Event emitted when the pairing workflow awaits the next team.
+pub struct PairingWaitingEvent {
+    pub team_id: Uuid,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+/// Event emitted when a buzzer has been assigned during pairing.
+pub struct PairingAssignedEvent {
+    pub team_id: Uuid,
+    pub buzzer_id: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+/// Event emitted when pairing is aborted and teams restored.
+pub struct PairingRestoredEvent {
+    pub snapshot: Vec<TeamSummary>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+/// Event emitted when a buzzer buzzes during prep ready mode.
+pub struct TestBuzzEvent {
+    pub team_id: Uuid,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+/// Event emitted when a new team is created.
+pub struct TeamCreatedEvent {
+    pub team: TeamSummary,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+/// Event emitted when a team has been deleted.
+pub struct TeamDeletedEvent {
+    pub team_id: Uuid,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+/// Event emitted when an existing team was updated (name, buzzer, or score).
+pub struct TeamUpdatedEvent {
+    pub team: TeamSummary,
+}
+
 impl From<crate::state::game::Player> for TeamSummary {
     fn from(player: crate::state::game::Player) -> Self {
         Self {
+            id: player.id,
             buzzer_id: player.buzzer_id,
             name: player.name,
             score: player.score,

@@ -87,6 +87,7 @@ pub struct CouchPlaylistDocument {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaylistBody {
     pub name: String,
+    #[serde(with = "super::song_map")]
     pub songs: HashMap<u32, SongEntity>,
 }
 

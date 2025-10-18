@@ -2,17 +2,17 @@
 //! Storage persistence, in-memory state updates, and state-machine transitions
 //! while honouring the single-transition-at-a-time requirement.
 
-use std::{sync::Arc, time::SystemTime};
+use std::time::SystemTime;
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::{
-    dao::game_store::GameStore,
     dto::{
         admin::{
-            ActionResponse, AnswerValidationRequest, CreateGameRequest, FieldKind,
-            FieldsFoundResponse, GameListItem, MarkFieldRequest, NextSongResponse,
+            ActionResponse, AnswerValidationRequest, CreateGameRequest, CreateTeamRequest,
+            FieldKind, FieldsFoundResponse, GameListItem, MarkFieldRequest, NextSongResponse,
             PlaylistListItem, ScoreAdjustmentRequest, ScoreUpdateResponse, StartGameResponse,
-            StopGameResponse,
+            StartPairingRequest, StopGameResponse, UpdateTeamRequest,
         },
         game::{
             CreateGameWithPlaylistRequest, GameSummary, PlaylistInput, PlaylistSummary, SongSummary,
@@ -20,31 +20,52 @@ use crate::{
         sse::TeamSummary,
     },
     error::ServiceError,
-    services::{game_service, sse_events},
+    services::{
+        game_service,
+        pairing::{PairingSessionUpdate, apply_pairing_update, handle_pairing_progress},
+        sse_events,
+    },
     state::{
         SharedState,
-        game::{GameSession, PointField},
-        state_machine::{FinishReason, GameEvent, GamePhase, GameRunningPhase, PauseKind},
+        game::{GameSession, Player, PointField},
+        state_machine::{
+            FinishReason, GameEvent, GamePhase, GameRunningPhase, PairingSession, PauseKind,
+            PrepStatus,
+        },
         transitions::run_transition_with_broadcast,
     },
 };
 
-/// Obtain the configured game store or surface degraded mode.
-async fn game_store(state: &SharedState) -> Result<Arc<dyn GameStore>, ServiceError> {
-    state.game_store().await.ok_or(ServiceError::Degraded)
+async fn ensure_prep_phase(state: &SharedState) -> Result<PrepStatus, ServiceError> {
+    match state.state_machine_phase().await {
+        GamePhase::GameRunning(GameRunningPhase::Prep(status)) => Ok(status),
+        other => Err(ServiceError::InvalidState(format!(
+            "operation requires prep phase, current phase {other:?}"
+        ))),
+    }
 }
 
-/// Persist the in-memory game session back into the configured store.
-async fn persist_current_game(state: &SharedState) -> Result<(), ServiceError> {
-    let store = game_store(state).await?;
-    let snapshot = {
-        let guard = state.current_game().read().await;
-        guard
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?
-    };
-    store.save_game(snapshot.into()).await?;
+fn sanitize_optional_buzzer(input: Option<String>) -> Result<Option<String>, ServiceError> {
+    match input {
+        Some(value) => Ok(Some(game_service::sanitize_buzzer_id(&value)?)),
+        None => Ok(None),
+    }
+}
+
+fn assert_unique_buzzer(
+    game: &GameSession,
+    exclude: Option<Uuid>,
+    buzzer_id: &str,
+) -> Result<(), ServiceError> {
+    if game
+        .players
+        .iter()
+        .any(|player| player.buzzer_id.as_deref() == Some(buzzer_id) && Some(player.id) != exclude)
+    {
+        return Err(ServiceError::InvalidInput(format!(
+            "duplicate buzzer id `{buzzer_id}` detected"
+        )));
+    }
     Ok(())
 }
 
@@ -72,7 +93,7 @@ fn ensure_running_phase(phase: GamePhase) -> Result<GameRunningPhase, ServiceErr
 // ---------------------------------------------------------------------------
 
 pub async fn list_games(state: &SharedState) -> Result<Vec<GameListItem>, ServiceError> {
-    let store = game_store(state).await?;
+    let store = state.require_game_store().await?;
     let entries = store.list_games().await?;
     Ok(entries
         .into_iter()
@@ -82,7 +103,7 @@ pub async fn list_games(state: &SharedState) -> Result<Vec<GameListItem>, Servic
 
 /// Return the playlists that can seed new games.
 pub async fn list_playlists(state: &SharedState) -> Result<Vec<PlaylistListItem>, ServiceError> {
-    let store = game_store(state).await?;
+    let store = state.require_game_store().await?;
     let entries = store.list_playlists().await?;
     Ok(entries
         .into_iter()
@@ -151,6 +172,21 @@ pub async fn create_game_from_playlist(
 
 /// Move the admin-controlled game into the running phase and expose the first song.
 pub async fn start_game(state: &SharedState) -> Result<StartGameResponse, ServiceError> {
+    if let GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Ready)) =
+        state.state_machine_phase().await
+    {
+        let guard = state.current_game().read().await;
+        let game = guard
+            .as_ref()
+            .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
+
+        if !state.all_teams_paired(&game.players) {
+            return Err(ServiceError::InvalidState(
+                "cannot start game while unpaired teams remain".into(),
+            ));
+        }
+    }
+
     let song_summary = load_next_song(state, true)
         .await?
         .expect("Error during game start: no song found in playlist after transitionning the state (should not happen)");
@@ -261,7 +297,7 @@ async fn load_next_song(
             }
         };
 
-        persist_current_game(state).await?;
+        state.persist_current_game().await?;
         Ok(summary)
     })
     .await
@@ -287,7 +323,7 @@ pub async fn stop_game(state: &SharedState) -> Result<StopGameResponse, ServiceE
                     .collect::<Vec<_>>()
             };
 
-            persist_current_game(state).await?;
+            state.persist_current_game().await?;
             Ok(StopGameResponse { teams })
         },
     )
@@ -317,7 +353,7 @@ pub async fn mark_field_found(
 ) -> Result<FieldsFoundResponse, ServiceError> {
     let phase = state.state_machine_phase().await;
     let running_phase = ensure_running_phase(phase)?;
-    if matches!(running_phase, GameRunningPhase::Prep) {
+    if matches!(running_phase, GameRunningPhase::Prep(_)) {
         return Err(ServiceError::InvalidState(
             "cannot mark fields during preparation".into(),
         ));
@@ -368,7 +404,7 @@ pub async fn mark_field_found(
         }
     };
 
-    persist_current_game(state).await?;
+    state.persist_current_game().await?;
 
     sse_events::broadcast_fields_found(
         state,
@@ -411,19 +447,248 @@ pub async fn adjust_score(
         let player = game
             .players
             .iter_mut()
-            .find(|p| p.buzzer_id == request.buzzer_id)
+            .find(|p| p.buzzer_id.as_deref() == Some(request.buzzer_id.as_str()))
             .ok_or_else(|| ServiceError::NotFound("player not found".into()))?;
         player.score += request.delta;
         player.clone()
     };
 
-    persist_current_game(state).await?;
+    state.persist_current_game().await?;
     sse_events::broadcast_score_adjustment(state, updated_player.clone());
 
     Ok(ScoreUpdateResponse {
         buzzer_id: updated_player.buzzer_id,
         score: updated_player.score,
     })
+}
+
+/// Create a new team during the prep phase.
+pub async fn create_team(
+    state: &SharedState,
+    request: CreateTeamRequest,
+) -> Result<TeamSummary, ServiceError> {
+    let prep_status = ensure_prep_phase(state).await?;
+    if matches!(prep_status, PrepStatus::Pairing(_)) {
+        return Err(ServiceError::InvalidState(
+            "cannot modify teams during active pairing".into(),
+        ));
+    }
+
+    if request.name.trim().is_empty() {
+        return Err(ServiceError::InvalidInput(
+            "team name must not be empty".into(),
+        ));
+    }
+
+    let buzzer_id = sanitize_optional_buzzer(request.buzzer_id)?;
+    let mut guard = state.current_game().write().await;
+    let game = unwrap_current_game_mut(&mut guard)?;
+
+    if let Some(ref buzzer) = buzzer_id {
+        assert_unique_buzzer(game, None, buzzer)?;
+    }
+
+    let team = Player {
+        id: Uuid::new_v4(),
+        buzzer_id,
+        name: request.name,
+        score: request.score.unwrap_or(0),
+    };
+
+    game.players.push(team.clone());
+    drop(guard);
+
+    state.persist_current_game().await?;
+    let summary: TeamSummary = team.into();
+    sse_events::broadcast_team_created(state, summary.clone());
+
+    Ok(summary)
+}
+
+/// Update team metadata (name, buzzer, score) while in prep phase.
+pub async fn update_team(
+    state: &SharedState,
+    team_id: Uuid,
+    request: UpdateTeamRequest,
+) -> Result<TeamSummary, ServiceError> {
+    let UpdateTeamRequest {
+        name,
+        buzzer_id,
+        score,
+    } = request;
+
+    let prep_status = ensure_prep_phase(state).await?;
+    if matches!(prep_status, PrepStatus::Pairing(_)) {
+        return Err(ServiceError::InvalidState(
+            "cannot modify teams during active pairing".into(),
+        ));
+    }
+
+    if name.trim().is_empty() {
+        return Err(ServiceError::InvalidInput(
+            "team name must not be empty".into(),
+        ));
+    }
+
+    let buzzer_update = buzzer_id.map(sanitize_optional_buzzer).transpose()?;
+
+    let mut guard = state.current_game().write().await;
+    let game = unwrap_current_game_mut(&mut guard)?;
+
+    if let Some(Some(ref buzzer)) = buzzer_update {
+        assert_unique_buzzer(game, Some(team_id), buzzer)?;
+    }
+
+    let roster = {
+        let team = game
+            .players
+            .iter_mut()
+            .find(|player| player.id == team_id)
+            .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
+
+        team.name = name;
+        if let Some(buzzer) = buzzer_update.clone() {
+            team.buzzer_id = buzzer;
+        }
+        if let Some(new_score) = score {
+            team.score = new_score;
+        }
+
+        game.players.clone()
+    };
+
+    let summary: TeamSummary = roster
+        .into_iter()
+        .find(|player| player.id == team_id)
+        .map(|player| player.into())
+        .expect("team must exist");
+    drop(guard);
+
+    state.persist_current_game().await?;
+    sse_events::broadcast_team_updated(state, summary.clone());
+
+    Ok(summary)
+}
+
+/// Delete an existing team while in prep mode.
+pub async fn delete_team(state: &SharedState, team_id: Uuid) -> Result<(), ServiceError> {
+    let prep_status = ensure_prep_phase(state).await?;
+
+    let roster = {
+        let mut guard = state.current_game().write().await;
+        let game = unwrap_current_game_mut(&mut guard)?;
+
+        let index = game
+            .players
+            .iter()
+            .position(|player| player.id == team_id)
+            .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
+
+        game.players.remove(index);
+
+        game.players.clone()
+    };
+
+    let pairing_progress = match prep_status {
+        PrepStatus::Ready => None,
+        PrepStatus::Pairing(_) => {
+            apply_pairing_update(state, PairingSessionUpdate::Deleted { team_id, roster }).await?
+        }
+    };
+
+    state.persist_current_game().await?;
+    sse_events::broadcast_team_deleted(state, team_id);
+    if let Some(pairing_progress) = pairing_progress {
+        handle_pairing_progress(state, pairing_progress).await?;
+    } else {
+        debug!(
+            deleted_team_id = %team_id,
+            "Pairing did not update (either PrepStatus::Ready or pairing_team_id != deleted_team_id)"
+        );
+    }
+
+    Ok(())
+}
+
+/// Begin a pairing workflow for assigning buzzers to teams.
+pub async fn start_pairing(
+    state: &SharedState,
+    request: StartPairingRequest,
+) -> Result<(), ServiceError> {
+    match ensure_prep_phase(state).await? {
+        PrepStatus::Ready => {}
+        PrepStatus::Pairing(_) => {
+            return Err(ServiceError::InvalidState(
+                "pairing is already in progress".into(),
+            ));
+        }
+    }
+
+    let first_team_id = request.first_team_id;
+
+    let snapshot = {
+        let guard = state.current_game().read().await;
+        let game = guard
+            .as_ref()
+            .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
+
+        if !game.players.iter().any(|player| player.id == first_team_id) {
+            return Err(ServiceError::NotFound(format!(
+                "team `{first_team_id}` not found"
+            )));
+        }
+
+        game.players.clone()
+    };
+
+    let session = PairingSession {
+        pairing_team_id: first_team_id,
+        snapshot,
+    };
+
+    run_transition_with_broadcast(
+        state,
+        GameEvent::PairingStarted(session),
+        move || async move { Ok(()) },
+    )
+    .await?;
+
+    state.persist_current_game().await?;
+    sse_events::broadcast_pairing_waiting(state, first_team_id);
+
+    Ok(())
+}
+
+/// Abort an active pairing workflow and restore the previous roster.
+pub async fn abort_pairing(state: &SharedState) -> Result<Vec<TeamSummary>, ServiceError> {
+    match ensure_prep_phase(state).await? {
+        PrepStatus::Pairing(_) => {}
+        PrepStatus::Ready => {
+            return Err(ServiceError::InvalidState(
+                "no pairing session is active".into(),
+            ));
+        }
+    }
+
+    let roster =
+        run_transition_with_broadcast(state, GameEvent::PairingFinished, move || async move {
+            let session = state
+                .pairing_session()
+                .await
+                .ok_or_else(|| ServiceError::InvalidState("no pairing session is active".into()))?;
+            let mut guard = state.current_game().write().await;
+            let game = unwrap_current_game_mut(&mut guard)?;
+            game.players = session.snapshot;
+            let roster = game.players.clone();
+            drop(guard);
+            Ok(roster)
+        })
+        .await?;
+
+    state.persist_current_game().await?;
+    sse_events::broadcast_pairing_restored(state, roster.as_slice());
+
+    Ok(roster.into_iter().map(Into::into).collect())
 }
 
 /// Validate that the requested field is part of the song definition.

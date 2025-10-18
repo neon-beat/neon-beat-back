@@ -2,13 +2,13 @@
 
 use crate::{
     dto::{
-        public::{CurrentSongResponse, GamePhaseResponse, PublicPhase, TeamsResponse},
+        public::{CurrentSongResponse, GamePhaseResponse, PairingStatusResponse, TeamsResponse},
         sse::TeamSummary,
     },
     error::ServiceError,
     state::{
         SharedState,
-        state_machine::{GamePhase, GameRunningPhase},
+        state_machine::{GamePhase, GameRunningPhase, PrepStatus},
     },
 };
 
@@ -56,19 +56,31 @@ pub async fn get_game_phase(state: &SharedState) -> Result<GamePhaseResponse, Se
     let degraded = state.is_degraded().await;
 
     Ok(GamePhaseResponse {
-        phase: map_phase(&phase),
+        phase: (&phase).into(),
         degraded,
     })
 }
 
-/// Translate the internal state-machine phase into the public snapshot enum.
-fn map_phase(value: &GamePhase) -> PublicPhase {
-    match value {
-        GamePhase::Idle => PublicPhase::Idle,
-        GamePhase::ShowScores => PublicPhase::Scores,
-        GamePhase::GameRunning(GameRunningPhase::Prep) => PublicPhase::Prep,
-        GamePhase::GameRunning(GameRunningPhase::Playing) => PublicPhase::Playing,
-        GamePhase::GameRunning(GameRunningPhase::Paused(_)) => PublicPhase::Pause,
-        GamePhase::GameRunning(GameRunningPhase::Reveal) => PublicPhase::Reveal,
+/// Return the current pairing workflow status for public consumers.
+pub async fn get_pairing_status(
+    state: &SharedState,
+) -> Result<PairingStatusResponse, ServiceError> {
+    match state.state_machine_phase().await {
+        GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Ready)) => {
+            Ok(PairingStatusResponse {
+                is_pairing: false,
+                team_id: None,
+            })
+        }
+        GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Pairing(session))) => {
+            Ok(PairingStatusResponse {
+                is_pairing: true,
+                team_id: Some(session.pairing_team_id),
+            })
+        }
+        _ => Ok(PairingStatusResponse {
+            is_pairing: false,
+            team_id: None,
+        }),
     }
 }

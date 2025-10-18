@@ -64,7 +64,8 @@ pub struct GameSummary {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PlayerSummary {
-    pub buzzer_id: String,
+    pub id: Uuid,
+    pub buzzer_id: Option<String>,
     pub name: String,
     pub score: i32,
 }
@@ -112,6 +113,7 @@ impl From<PointField> for PointFieldSummary {
 impl From<Player> for PlayerSummary {
     fn from(player: Player) -> Self {
         Self {
+            id: player.id,
             buzzer_id: player.buzzer_id,
             name: player.name,
             score: player.score,

@@ -74,8 +74,35 @@ pub struct ActionResponse {
 /// Result of a score adjustment, returning the updated tally.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ScoreUpdateResponse {
-    pub buzzer_id: String,
+    pub buzzer_id: Option<String>,
     pub score: i32,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+/// Request payload to create a new team during the prep phase.
+pub struct CreateTeamRequest {
+    pub name: String,
+    #[serde(default)]
+    pub buzzer_id: Option<String>,
+    #[serde(default)]
+    pub score: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+/// Request payload to update an existing team in the active game.
+pub struct UpdateTeamRequest {
+    pub name: String,
+    #[serde(default)]
+    #[schema(value_type = Option<String>)]
+    pub buzzer_id: Option<Option<String>>,
+    #[serde(default)]
+    pub score: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+/// Request payload to start a buzzer pairing session.
+pub struct StartPairingRequest {
+    pub first_team_id: Uuid,
 }
 
 /// Response emitted when a game starts, including the initial song details.

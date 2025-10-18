@@ -5,19 +5,21 @@ pub mod transitions;
 
 use std::{sync::Arc, time::Duration};
 
-use axum::extract::ws::Message;
-use dashmap::DashMap;
-use tokio::sync::{Mutex, RwLock, mpsc, watch};
-use tokio::time::timeout;
-use tracing::warn;
-
 use crate::services::websocket_service::send_message_to_websocket;
 use crate::{
     dao::game_store::GameStore,
     dto::ws::BuzzFeedback,
     error::ServiceError,
-    state::{game::GameSession, state_machine::GamePhase},
+    state::{
+        game::{GameSession, Player},
+        state_machine::{GamePhase, PairingSession},
+    },
 };
+use axum::extract::ws::Message;
+use dashmap::DashMap;
+use tokio::sync::{Mutex, RwLock, mpsc, watch};
+use tokio::time::timeout;
+use tracing::warn;
 
 pub use self::sse::SseHub;
 pub use self::state_machine::{AbortError, ApplyError, Plan, PlanError, PlanId, Snapshot};
@@ -74,6 +76,25 @@ impl AppState {
         guard.as_ref().cloned()
     }
 
+    /// Retrieve the configured game store or report degraded mode.
+    pub async fn require_game_store(&self) -> Result<Arc<dyn GameStore>, ServiceError> {
+        self.game_store().await.ok_or(ServiceError::Degraded)
+    }
+
+    /// Persist the current in-memory game back into the configured store.
+    pub async fn persist_current_game(&self) -> Result<(), ServiceError> {
+        let store = self.require_game_store().await?;
+        let snapshot = {
+            let guard = self.current_game.read().await;
+            guard
+                .as_ref()
+                .cloned()
+                .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?
+        };
+        store.save_game(snapshot.into()).await?;
+        Ok(())
+    }
+
     /// Install a new game store implementation and leave degraded mode.
     pub async fn set_game_store(&self, store: Arc<dyn GameStore>) {
         {
@@ -111,6 +132,39 @@ impl AppState {
     /// Registry of active buzzer sockets keyed by their identifier.
     pub fn buzzers(&self) -> &DashMap<String, BuzzerConnection> {
         &self.buzzers
+    }
+
+    /// Snapshot the current pairing session if one is active.
+    pub async fn pairing_session(&self) -> Option<PairingSession> {
+        let sm = self.game.read().await;
+        sm.pairing_session().cloned()
+    }
+
+    /// Mutate the active pairing session, if any, returning the closure result.
+    ///
+    /// Callers may return domain-specific errors from the closure; if the session is not currently
+    /// active a `ServiceError::InvalidState` is returned instead.
+    pub async fn with_pairing_session_mut<F, T>(&self, f: F) -> Result<T, ServiceError>
+    where
+        F: FnOnce(&mut PairingSession) -> T,
+    {
+        let mut sm = self.game.write().await;
+        match sm.pairing_session_mut() {
+            Some(session) => Ok(f(session)),
+            None => Err(ServiceError::InvalidState(
+                "pairing session is not active".into(),
+            )),
+        }
+    }
+
+    /// Check whether every player in `players` has an active buzzer connection registered.
+    pub fn all_teams_paired(&self, players: &[Player]) -> bool {
+        players.iter().all(|player| {
+            player
+                .buzzer_id
+                .as_ref()
+                .is_some_and(|id| self.buzzers.contains_key(id))
+        })
     }
 
     /// Snapshot the current phase of the shared game state machine.

@@ -43,10 +43,12 @@ pub struct PointField {
 }
 
 /// Player info tracked during a game session.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Player {
+    /// Stable identifier for this team/player.
+    pub id: Uuid,
     /// Unique buzzer identifier (12 lowercase hexadecimal characters).
-    pub buzzer_id: String,
+    pub buzzer_id: Option<String>,
     /// Display name chosen for the player/team.
     pub name: String,
     /// Current score for the player.
@@ -205,6 +207,7 @@ impl From<Playlist> for PlaylistEntity {
 impl From<PlayerEntity> for Player {
     fn from(value: PlayerEntity) -> Self {
         Self {
+            id: value.id,
             buzzer_id: value.buzzer_id,
             name: value.name,
             score: value.score,
@@ -215,6 +218,7 @@ impl From<PlayerEntity> for Player {
 impl From<Player> for PlayerEntity {
     fn from(value: Player) -> Self {
         Self {
+            id: value.id,
             buzzer_id: value.buzzer_id,
             name: value.name,
             score: value.score,
