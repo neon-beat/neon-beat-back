@@ -180,6 +180,12 @@ pub async fn start_game(state: &SharedState) -> Result<StartGameResponse, Servic
             .as_ref()
             .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
 
+        if game.players.is_empty() {
+            return Err(ServiceError::InvalidInput(
+                "cannot start a game without at least one player".into(),
+            ));
+        }
+
         if !state.all_teams_paired(&game.players) {
             return Err(ServiceError::InvalidState(
                 "cannot start game while unpaired teams remain".into(),

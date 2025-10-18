@@ -373,9 +373,10 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [ ] Rename Player to Team (or find a new name)
 - [ ] Replace Vec<Teams> by HashMap if it is better
 - [ ] Create game/playlist IDs from store
-- [ ] Review PlayerInput: is buzzer_id really needed ?
+- [x] Review PlayerInput: is buzzer_id really needed ?
 - [ ] Migrate from DashMap to HashMap if DashMap is useless
 - [ ] Allow to create a game in degraded mode (save the session & playlist later)
+- [ ] Add axum validation
 - [ ] Better management for panics & expects
 - [ ] When a buzzer has the right to answer, send info to others that they don't have the right to buzz yet. When the buzzer ended its turn, send info to others that they have the right to buzz now.
 - [ ] Update `game_store` value of `AppState ` and send False to `degraded` watcher each time a mongo function returns a connection error ?

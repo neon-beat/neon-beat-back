@@ -59,13 +59,11 @@ pub async fn create_game(
         ));
     }
 
-    if players.is_empty() {
-        return Err(ServiceError::InvalidInput(
-            "a game requires at least one player".into(),
-        ));
-    }
-
-    let players = build_players(players)?;
+    let players = if players.is_empty() {
+        vec![]
+    } else {
+        build_players(players)?
+    };
 
     let store = state.game_store().await.ok_or(ServiceError::Degraded)?;
 
@@ -147,19 +145,27 @@ async fn ensure_idle(state: &SharedState) -> Result<(), ServiceError> {
     Ok(())
 }
 
-pub(crate) fn build_players(players: Vec<PlayerInput>) -> Result<Vec<Player>, ServiceError> {
+fn build_players(players: Vec<PlayerInput>) -> Result<Vec<Player>, ServiceError> {
     let mut seen_ids = HashSet::new();
     players
         .into_iter()
         .map(|player| {
-            let buzzer_id = sanitize_buzzer_id(&player.buzzer_id)?;
-
-            if !seen_ids.insert(buzzer_id.clone()) {
-                return Err(ServiceError::InvalidInput(format!(
-                    "duplicate buzzer id `{}` detected",
-                    buzzer_id
-                )));
-            }
+            let buzzer_id = player
+                .buzzer_id
+                .as_ref()
+                .map(|id| sanitize_buzzer_id(id))
+                .transpose()?
+                .map(|id| {
+                    if !seen_ids.insert(id.clone()) {
+                        Err(ServiceError::InvalidInput(format!(
+                            "duplicate buzzer id `{}` detected",
+                            id
+                        )))
+                    } else {
+                        Ok(id)
+                    }
+                })
+                .transpose()?;
 
             if player.name.trim().is_empty() {
                 return Err(ServiceError::InvalidInput(
@@ -169,7 +175,7 @@ pub(crate) fn build_players(players: Vec<PlayerInput>) -> Result<Vec<Player>, Se
 
             Ok(Player {
                 id: Uuid::new_v4(),
-                buzzer_id: Some(buzzer_id),
+                buzzer_id,
                 name: player.name,
                 score: 0,
             })
@@ -178,10 +184,7 @@ pub(crate) fn build_players(players: Vec<PlayerInput>) -> Result<Vec<Player>, Se
 }
 
 /// Construct a playlist from user-provided song metadata.
-pub(crate) fn build_playlist(
-    songs: Vec<SongInput>,
-    name: String,
-) -> Result<Playlist, ServiceError> {
+fn build_playlist(songs: Vec<SongInput>, name: String) -> Result<Playlist, ServiceError> {
     if name.trim().is_empty() {
         return Err(ServiceError::InvalidInput(
             "playlist name must not be empty".into(),
