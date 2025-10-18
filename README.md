@@ -73,6 +73,29 @@ stateDiagram-v2
     show_scores --> idle: GM_ends_game
 ```
 
+### Buzzer state flow
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> CONNECTED: connected
+    CONNECTED --> Idle: disconnected
+
+    state CONNECTED {
+        [*] --> Pairing
+        Pairing --> Pairing: pairing failed
+        Pairing --> IN_GAME: pairing succeeded
+        IN_GAME --> Pairing: game ended
+
+        state IN_GAME {
+            [*] --> Ready
+            Ready --> Ready: buzz rejected
+            Ready --> Buzzed: buzz accepted
+            Buzzed --> Ready: buzz ended valid
+            Buzzed --> Ready: buzz ended invalid
+        }
+    }
+```
+
 ## Core gameplay features
 
 - **Playlist import & persistence**: JSON playlists where each song has some basic properties and are persisted atomically:
