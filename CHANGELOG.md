@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.4] - Add more fields to the GET /admin/games response
+
+- Add players (names and ids), playlist (name and id), created_at and updated_at to the GET /admin/games response
+
 ## [v0.1.3] - Fix game creation (without players or with players with no buzzer ID)
 
 - PlayerInput: `buzzer_id` is now optional (changed to `Option<String>`).
