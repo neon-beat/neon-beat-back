@@ -20,7 +20,7 @@ pub struct CreateGameWithPlaylistRequest {
 /// Incoming player definition for the game bootstrap.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct PlayerInput {
-    pub buzzer_id: String,
+    pub buzzer_id: Option<String>,
     pub name: String,
 }
 
