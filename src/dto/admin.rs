@@ -4,13 +4,23 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::dto::game::{PlayerInput, SongSummary};
+use crate::{
+    dao::models::{GameListItemEntity, PlaylistEntity},
+    dto::{
+        format_system_time,
+        game::{PlayerBriefSummary, PlayerInput, SongSummary},
+    },
+};
 
 /// Minimal projection of a game when listed for administrators.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GameListItem {
     pub id: Uuid,
     pub name: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub players: Vec<PlayerBriefSummary>,
+    pub playlist: PlaylistListItem,
 }
 
 /// Minimal projection of a playlist available for game creation.
@@ -123,4 +133,21 @@ pub struct NextSongResponse {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct StopGameResponse {
     pub teams: Vec<crate::dto::sse::TeamSummary>,
+}
+
+// TODO try_from
+impl From<(GameListItemEntity, PlaylistEntity)> for GameListItem {
+    fn from((game_list_item, playlist): (GameListItemEntity, PlaylistEntity)) -> Self {
+        Self {
+            id: game_list_item.id,
+            name: game_list_item.name,
+            created_at: format_system_time(game_list_item.created_at),
+            updated_at: format_system_time(game_list_item.updated_at),
+            players: game_list_item.players.into_iter().map(Into::into).collect(),
+            playlist: PlaylistListItem {
+                id: playlist.id,
+                name: playlist.name,
+            },
+        }
+    }
 }

@@ -13,7 +13,7 @@ use super::{
 };
 use crate::dao::{
     game_store::GameStore,
-    models::{GameEntity, PlaylistEntity},
+    models::{GameEntity, GameListItemEntity, PlaylistEntity},
     storage::StorageResult,
 };
 
@@ -167,7 +167,7 @@ impl MongoGameStore {
             .map_err(|source| MongoDaoError::LoadPlaylist { id, source })
     }
 
-    async fn list_games_internal(&self) -> MongoResult<Vec<(Uuid, String)>> {
+    async fn list_games_internal(&self) -> MongoResult<Vec<GameListItemEntity>> {
         let collection = self.collection().await;
 
         let documents: Vec<MongoGameDocument> = collection
@@ -182,7 +182,7 @@ impl MongoGameStore {
             .into_iter()
             .map(|doc| {
                 let entity: GameEntity = doc.into();
-                (entity.id, entity.name)
+                entity.into()
             })
             .collect())
     }
@@ -231,7 +231,7 @@ impl GameStore for MongoGameStore {
         Box::pin(async move { store.find_playlist_entity(id).await.map_err(Into::into) })
     }
 
-    fn list_games(&self) -> BoxFuture<'static, StorageResult<Vec<(Uuid, String)>>> {
+    fn list_games(&self) -> BoxFuture<'static, StorageResult<Vec<GameListItemEntity>>> {
         let store = self.clone();
         Box::pin(async move { store.list_games_internal().await.map_err(Into::into) })
     }

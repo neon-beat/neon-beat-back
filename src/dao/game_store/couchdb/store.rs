@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::dao::{
     game_store::GameStore,
-    models::{GameEntity, PlaylistEntity},
+    models::{GameEntity, GameListItemEntity, PlaylistEntity},
     storage::StorageResult,
 };
 
@@ -269,7 +269,7 @@ impl GameStore for CouchGameStore {
     }
 
     /// Produce a list of known games comprising identifiers and titles.
-    fn list_games(&self) -> BoxFuture<'static, StorageResult<Vec<(Uuid, String)>>> {
+    fn list_games(&self) -> BoxFuture<'static, StorageResult<Vec<GameListItemEntity>>> {
         let store = self.clone();
         Box::pin(async move {
             let docs = store
@@ -277,10 +277,7 @@ impl GameStore for CouchGameStore {
                 .await?;
             Ok(docs
                 .into_iter()
-                .map(|doc| {
-                    let entity = doc.into_entity();
-                    (entity.id, entity.name)
-                })
+                .map(|doc| doc.into_entity().into())
                 .collect())
         })
     }

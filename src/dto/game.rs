@@ -1,13 +1,15 @@
-use std::{collections::HashSet, time::SystemTime};
+use std::collections::HashSet;
 
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::state::game::{GameSession, Player, Playlist, PointField, Song};
+use crate::{
+    dto::format_system_time,
+    state::game::{GameSession, Player, Playlist, PointField, Song},
+};
 
 /// Payload used to bootstrap a brand-new game instance.
 #[derive(Debug, Deserialize, ToSchema)]
@@ -68,6 +70,12 @@ pub struct PlayerSummary {
     pub buzzer_id: Option<String>,
     pub name: String,
     pub score: i32,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PlayerBriefSummary {
+    pub id: Uuid,
+    pub name: String,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -206,10 +214,4 @@ fn ordered_song_summaries(
             Ok((song_id, song_ref.value().clone()).into())
         })
         .collect::<Result<Vec<SongSummary>, _>>()
-}
-
-fn format_system_time(time: SystemTime) -> String {
-    OffsetDateTime::from(time)
-        .format(&Rfc3339)
-        .unwrap_or_else(|_| "invalid-timestamp".into())
 }

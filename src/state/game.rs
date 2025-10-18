@@ -3,7 +3,12 @@ use rand::{rng, seq::SliceRandom};
 use std::time::SystemTime;
 use uuid::Uuid;
 
-use crate::dao::models::{GameEntity, PlayerEntity, PlaylistEntity, PointFieldEntity, SongEntity};
+use crate::{
+    dao::models::{
+        GameEntity, PlayerEntity, PlayerSummaryEntity, PlaylistEntity, PointFieldEntity, SongEntity,
+    },
+    dto::game::PlayerBriefSummary,
+};
 
 /// Runtime representation of a playlist with its songs keyed by identifier.
 #[derive(Debug, Clone)]
@@ -222,6 +227,15 @@ impl From<Player> for PlayerEntity {
             buzzer_id: value.buzzer_id,
             name: value.name,
             score: value.score,
+        }
+    }
+}
+
+impl From<PlayerSummaryEntity> for PlayerBriefSummary {
+    fn from(value: PlayerSummaryEntity) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
         }
     }
 }
