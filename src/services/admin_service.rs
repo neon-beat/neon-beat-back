@@ -94,11 +94,20 @@ fn ensure_running_phase(phase: GamePhase) -> Result<GameRunningPhase, ServiceErr
 
 pub async fn list_games(state: &SharedState) -> Result<Vec<GameListItem>, ServiceError> {
     let store = state.require_game_store().await?;
-    let entries = store.list_games().await?;
-    Ok(entries
-        .into_iter()
-        .map(|(id, name)| GameListItem { id, name })
-        .collect())
+    let game_entities = store.list_games().await?;
+
+    let mut games_list = Vec::with_capacity(game_entities.len());
+    for game in game_entities {
+        let playlist = store
+            .find_playlist(game.playlist_id)
+            .await?
+            .ok_or_else(|| {
+                ServiceError::NotFound(format!("playlist {} not found", game.playlist_id))
+            })?;
+        games_list.push((game, playlist).into());
+    }
+
+    Ok(games_list)
 }
 
 /// Return the playlists that can seed new games.

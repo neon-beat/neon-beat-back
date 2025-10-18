@@ -52,6 +52,15 @@ pub struct PlayerEntity {
     pub score: i32,
 }
 
+/// Summary representation of a player stored in persistence and shared across layers.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlayerSummaryEntity {
+    /// Stable identifier for the team.
+    pub id: Uuid,
+    /// Display name chosen for the player/team.
+    pub name: String,
+}
+
 /// Aggregate game entity persisted by the storage layer.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GameEntity {
@@ -71,4 +80,43 @@ pub struct GameEntity {
     pub playlist_song_order: Vec<u32>,
     /// Index of the current song to be found.
     pub current_song_index: Option<usize>,
+}
+
+/// Aggregate game list item entity (subset of GameEntity) persisted by the storage layer.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GameListItemEntity {
+    /// Primary key of the game.
+    pub id: Uuid,
+    /// Display name of the quiz / round.
+    pub name: String,
+    /// Creation timestamp for auditing/debugging.
+    pub created_at: SystemTime,
+    /// Last time the game entity was updated.
+    pub updated_at: SystemTime,
+    /// Participating players.
+    pub players: Vec<PlayerSummaryEntity>,
+    /// ID of the playlist used in this game session.
+    pub playlist_id: Uuid,
+}
+
+impl From<PlayerEntity> for PlayerSummaryEntity {
+    fn from(value: PlayerEntity) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+        }
+    }
+}
+
+impl From<GameEntity> for GameListItemEntity {
+    fn from(entity: GameEntity) -> Self {
+        Self {
+            id: entity.id,
+            name: entity.name,
+            created_at: entity.created_at,
+            updated_at: entity.updated_at,
+            players: entity.players.into_iter().map(Into::into).collect(),
+            playlist_id: entity.playlist_id,
+        }
+    }
 }
