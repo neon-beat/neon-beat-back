@@ -2,7 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v0.1.2] - Unreleased
+## [v0.1.3] - Fix game creation (without players or with players with no buzzer ID)
+
+- PlayerInput: `buzzer_id` is now optional (changed to `Option<String>`).
+- Game creation and startup validation tightened:
+	- `create_game` will accept empty player lists and build an empty player vector.
+	- `start_game` now returns an error when attempting to start a game with zero players.
+
+## [v0.1.2] - Add team/buzzer pairing and fix GET /admin/playlists
 
 ### Interface changes
 
