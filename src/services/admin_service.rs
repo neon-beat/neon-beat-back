@@ -488,6 +488,7 @@ pub async fn validate_answer(
 
 pub async fn adjust_score(
     state: &SharedState,
+    team_id: Uuid,
     request: ScoreAdjustmentRequest,
 ) -> Result<ScoreUpdateResponse, ServiceError> {
     let phase = state.state_machine_phase().await;
@@ -499,7 +500,7 @@ pub async fn adjust_score(
         let team = game
             .teams
             .iter_mut()
-            .find(|p| p.buzzer_id.as_deref() == Some(request.buzzer_id.as_str()))
+            .find(|p| p.id == team_id)
             .ok_or_else(|| ServiceError::NotFound("team not found".into()))?;
         team.score += request.delta;
         team.clone()
@@ -509,7 +510,7 @@ pub async fn adjust_score(
     sse_events::broadcast_score_adjustment(state, updated_team.clone());
 
     Ok(ScoreUpdateResponse {
-        buzzer_id: updated_team.buzzer_id,
+        team_id: updated_team.id,
         score: updated_team.score,
     })
 }

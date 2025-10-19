@@ -50,7 +50,7 @@ pub fn router(state: SharedState) -> Router<SharedState> {
         .route("/admin/game/end", post(end_game))
         .route("/admin/game/fields/found", post(mark_field_found))
         .route("/admin/game/answer", post(validate_answer))
-        .route("/admin/game/score", post(adjust_score))
+        .route("/admin/teams/{id}/score", post(adjust_score))
         .route("/admin/teams", post(create_team))
         .route("/admin/teams/{id}", put(update_team).delete(delete_team))
         .route("/admin/teams/pairing", post(start_pairing))
@@ -313,20 +313,24 @@ pub async fn validate_answer(
     Ok(Json(admin_service::validate_answer(&state, payload).await?))
 }
 
-/// Adjust the score for a specific buzzer entry.
+/// Adjust the score for a specific team by team ID.
 #[utoipa::path(
     post,
-    path = "/admin/game/score",
+    path = "/admin/teams/{id}/score",
     tag = "admin",
-    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream"),
+            ("id" = String, Path, description = "Identifier of the team to adjust")),
     request_body = ScoreAdjustmentRequest,
     responses((status = 200, description = "Score adjusted", body = ScoreUpdateResponse))
 )]
 pub async fn adjust_score(
     State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
     Json(payload): Json<ScoreAdjustmentRequest>,
 ) -> Result<Json<ScoreUpdateResponse>, AppError> {
-    Ok(Json(admin_service::adjust_score(&state, payload).await?))
+    Ok(Json(
+        admin_service::adjust_score(&state, id, payload).await?,
+    ))
 }
 
 #[utoipa::path(

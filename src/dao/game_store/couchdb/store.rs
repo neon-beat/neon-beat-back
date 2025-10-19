@@ -330,10 +330,7 @@ impl GameStore for CouchGameStore {
 
             let rev = doc.rev.ok_or_else(|| CouchDaoError::DeserializeValue {
                 path: doc_id.clone(),
-                source: JsonError::io(io::Error::new(
-                    io::ErrorKind::Other,
-                    "missing _rev for CouchDB document",
-                )),
+                source: JsonError::io(io::Error::other("missing _rev for CouchDB document")),
             })?;
 
             store

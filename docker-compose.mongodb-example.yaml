@@ -13,12 +13,13 @@ services:
       context: .
       args:
         BUILD_TARGET: ${BUILD_TARGET:-}
+        CARGO_FEATURES: " --no-default-features --features mongo-store"
     environment:
-      NEON_STORE: mongo
+      # NEON_STORE: mongo
       MONGO_URI: *mongo_uri
       MONGO_DB: *mongo_db
       PORT: "8080"
-      RUST_LOG: info
+      # RUST_LOG: info
     depends_on:
       - mongo
     ports:
