@@ -243,6 +243,10 @@ The remaining events represent gameplay changes. Payload types are defined in `s
 
 Keep-alive comments are sent every 15 seconds so most SSE clients will stay connected by default.
 
+#### Admin API authentication
+
+All `/admin/**` routes now require the token issued by the admin SSE stream. After a client connects to `/sse/admin`, the initial `handshake` event includes a `token` field. Subsequent admin REST requests must supply this value in the `X-Admin-Token` header (case insensitive). Requests without a token, or with a stale token after the SSE stream disconnects, receive `401 Unauthorized`.
+
 ## Getting started
 
 ### Prerequisites
@@ -390,30 +394,31 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
    - [x] get game phase
 - [x] Implement GET /admin/games/:id route
 - [x] Add game_id to GET /public/phase route
-- [ ] No need for NEON STORE if built with a single Neon Store
 - [x] INFO logs by default (not debug)
-- [ ] Add more logs
 - [x] Implement buzzer testing during GamePhase::GameRunning(GameRunningPhase::Prep(_)) (test buzz)
+- [x] Add middleware for admin routes (check token)
+- [x] Rename Player to Team (or find a new name)
+- [x] Review TeamInput: is buzzer_id really needed ?
+- [x] Validate the Rest API /healthcheck route
+- [x] Validate the WebSocket connection
+- [x] Validate the SSE connection
+- [x] Validate the CouchDB connection
+- [ ] Add DELETE /admin/games/:id route
+- [ ] Remove unecessary pub(crate) functions
+- [ ] Replace Vec<Teams> by HashMap if it is better
+- [ ] Migrate from DashMap to HashMap if DashMap is useless
+- [ ] Add axum validation
+- [ ] No need for NEON STORE if built with a single Neon Store
+- [ ] Add more logs
 - [ ] Debounce device buzzes (~250 ms) during pairing to avoid double assigns
 - [ ] Reorganize routes if required
-- [ ] Add middleware for admin routes (check token)
 - [ ] Better management for errors
-- [ ] Validate the Rest API /healthcheck route
-- [ ] Validate the WebSocket connection
-- [ ] Validate the SSE connection
-- [ ] Validate the MongoDB connection
 - [ ] Send encountered errors to admin SSE during WS handles
-- [ ] Remove unecessary pub(crate) functions
-- [x] Rename Player to Team (or find a new name)
-- [ ] Replace Vec<Teams> by HashMap if it is better
 - [ ] Create game/playlist IDs from store
-- [x] Review TeamInput: is buzzer_id really needed ?
-- [ ] Migrate from DashMap to HashMap if DashMap is useless
 - [ ] Allow to create a game in degraded mode (save the session & playlist later)
-- [ ] Add axum validation
 - [ ] Better management for panics & expects
 - [ ] When a buzzer has the right to answer, send info to others that they don't have the right to buzz yet. When the buzzer ended its turn, send info to others that they have the right to buzz now.
-- [ ] Update `game_store` value of `AppState ` and send False to `degraded` watcher each time a mongo function returns a connection error ?
+- [ ] Update `game_store` value of `AppState ` and send False to `degraded` watcher each time a GameStore function returns a connection error ?
 - [ ] Remove useless features of dependencies if found
 - [ ] Implement tests
 

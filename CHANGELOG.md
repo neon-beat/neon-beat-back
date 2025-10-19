@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.3.0] - feat: Add authentication for admin routes
+
+- All `/admin/**` routes now require the `X-Admin-Token` header. The value is issued via the admin SSE handshake (`/sse/admin`).
+
 ## [v0.2.1] - feat: Set default tower_http (and every other module) log verbosity level to info
 
 - Set default tower_http (and every other module) log verbosity level to info

@@ -1,7 +1,10 @@
 use axum::{
     Json, Router,
+    body::Body,
     extract::{Path, State},
-    http::StatusCode,
+    http::{Request, StatusCode},
+    middleware::{self, Next},
+    response::Response,
     routing::{get, post, put},
 };
 use uuid::Uuid;
@@ -22,8 +25,10 @@ use crate::{
     state::SharedState,
 };
 
+const ADMIN_TOKEN_HEADER: &str = "x-admin-token";
+
 /// Admin-only management endpoints for configuring and driving games.
-pub fn router() -> Router<SharedState> {
+pub fn router(state: SharedState) -> Router<SharedState> {
     Router::new()
         .route("/admin/games", get(list_games).post(create_game))
         .route(
@@ -50,6 +55,7 @@ pub fn router() -> Router<SharedState> {
         .route("/admin/teams/{id}", put(update_team).delete(delete_team))
         .route("/admin/teams/pairing", post(start_pairing))
         .route("/admin/teams/pairing/abort", post(abort_pairing))
+        .route_layer(middleware::from_fn_with_state(state, require_admin_token))
 }
 
 /// Retrieve all games known to the system for administration purposes.
@@ -57,6 +63,7 @@ pub fn router() -> Router<SharedState> {
     get,
     path = "/admin/games",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     responses((status = 200, description = "List available games", body = [GameListItem]))
 )]
 pub async fn list_games(
@@ -70,7 +77,8 @@ pub async fn list_games(
     get,
     path = "/admin/games/{id}",
     tag = "admin",
-    params(("id" = String, Path, description = "Identifier of the game to retrieve")),
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream"),
+    ("id" = String, Path, description = "Identifier of the game to retrieve")),
     responses((status = 200, description = "Game", body = GameSummary))
 )]
 pub async fn get_game_by_id(
@@ -85,6 +93,7 @@ pub async fn get_game_by_id(
     get,
     path = "/admin/playlists",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     responses((status = 200, description = "List available playlists", body = [PlaylistListItem]))
 )]
 pub async fn list_playlists(
@@ -98,6 +107,7 @@ pub async fn list_playlists(
     post,
     path = "/admin/playlists",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     request_body = PlaylistInput,
     responses((status = 200, description = "Playlist created", body = PlaylistSummary))
 )]
@@ -113,7 +123,8 @@ pub async fn create_playlist(
     post,
     path = "/admin/games/{id}/load",
     tag = "admin",
-    params(("id" = String, Path, description = "Identifier of the game to load")),
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream"),
+    ("id" = String, Path, description = "Identifier of the game to load")),
     responses((status = 200, description = "Game loaded", body = GameSummary))
 )]
 pub async fn load_game(
@@ -128,6 +139,7 @@ pub async fn load_game(
     post,
     path = "/admin/games/with-playlist",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     request_body = CreateGameWithPlaylistRequest,
     responses((status = 200, description = "Game created", body = GameSummary))
 )]
@@ -143,6 +155,7 @@ pub async fn create_game_with_playlist(
     post,
     path = "/admin/games",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     request_body = CreateGameRequest,
     responses((status = 200, description = "Game created from playlist", body = GameSummary))
 )]
@@ -159,6 +172,7 @@ pub async fn create_game(
     post,
     path = "/admin/game/start",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     responses((status = 200, description = "Game started", body = StartGameResponse))
 )]
 pub async fn start_game(
@@ -172,6 +186,7 @@ pub async fn start_game(
     post,
     path = "/admin/game/pause",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     responses((status = 200, description = "Game paused", body = ActionResponse))
 )]
 pub async fn pause_game(
@@ -185,6 +200,7 @@ pub async fn pause_game(
     post,
     path = "/admin/game/resume",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     responses((status = 200, description = "Game resumed", body = ActionResponse))
 )]
 pub async fn resume_game(
@@ -198,6 +214,7 @@ pub async fn resume_game(
     post,
     path = "/admin/game/reveal",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     responses((status = 200, description = "Song revealed", body = ActionResponse))
 )]
 pub async fn reveal_song(
@@ -211,6 +228,7 @@ pub async fn reveal_song(
     post,
     path = "/admin/game/next",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     responses((status = 200, description = "Advanced to next song", body = NextSongResponse))
 )]
 pub async fn next_song(
@@ -224,6 +242,7 @@ pub async fn next_song(
     post,
     path = "/admin/game/stop",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     responses((status = 200, description = "Game stopped", body = StopGameResponse))
 )]
 pub async fn stop_game(
@@ -237,6 +256,7 @@ pub async fn stop_game(
     post,
     path = "/admin/game/end",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     responses((status = 200, description = "Game ended", body = ActionResponse))
 )]
 pub async fn end_game(State(state): State<SharedState>) -> Result<Json<ActionResponse>, AppError> {
@@ -248,6 +268,7 @@ pub async fn end_game(State(state): State<SharedState>) -> Result<Json<ActionRes
     post,
     path = "/admin/game/fields/found",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     request_body = MarkFieldRequest,
     responses((status = 200, description = "Updated discovered fields", body = FieldsFoundResponse))
 )]
@@ -264,6 +285,7 @@ pub async fn mark_field_found(
     post,
     path = "/admin/game/answer",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     request_body = AnswerValidationRequest,
     responses((status = 200, description = "Answer validation applied", body = ActionResponse))
 )]
@@ -279,6 +301,7 @@ pub async fn validate_answer(
     post,
     path = "/admin/game/score",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     request_body = ScoreAdjustmentRequest,
     responses((status = 200, description = "Score adjusted", body = ScoreUpdateResponse))
 )]
@@ -293,6 +316,7 @@ pub async fn adjust_score(
     post,
     path = "/admin/teams",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     request_body = CreateTeamRequest,
     responses((status = 200, description = "Team created", body = TeamSummary))
 )]
@@ -308,7 +332,8 @@ pub async fn create_team(
     put,
     path = "/admin/teams/{id}",
     tag = "admin",
-    params(("id" = Uuid, Path, description = "Identifier of the team to update")),
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream"),
+    ("id" = Uuid, Path, description = "Identifier of the team to update")),
     request_body = UpdateTeamRequest,
     responses((status = 200, description = "Team updated", body = TeamSummary))
 )]
@@ -325,7 +350,8 @@ pub async fn update_team(
     delete,
     path = "/admin/teams/{id}",
     tag = "admin",
-    params(("id" = Uuid, Path, description = "Identifier of the team to delete")),
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream"),
+    ("id" = Uuid, Path, description = "Identifier of the team to delete")),
     responses((status = 204, description = "Team deleted"))
 )]
 pub async fn delete_team(
@@ -340,6 +366,7 @@ pub async fn delete_team(
     post,
     path = "/admin/teams/pairing",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     request_body = StartPairingRequest,
     responses((status = 202, description = "Pairing started"))
 )]
@@ -355,6 +382,7 @@ pub async fn start_pairing(
     post,
     path = "/admin/teams/pairing/abort",
     tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     responses((status = 200, description = "Pairing aborted and roster restored", body = [TeamSummary]))
 )]
 pub async fn abort_pairing(
@@ -362,4 +390,32 @@ pub async fn abort_pairing(
 ) -> Result<Json<Vec<TeamSummary>>, AppError> {
     let roster = admin_service::abort_pairing(&state).await?;
     Ok(Json(roster))
+}
+
+async fn require_admin_token(
+    State(state): State<SharedState>,
+    req: Request<Body>,
+    next: Next,
+) -> Result<Response, AppError> {
+    let provided = req
+        .headers()
+        .get(ADMIN_TOKEN_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_owned())
+        .ok_or_else(|| {
+            AppError::Unauthorized("missing admin token header `X-Admin-Token`".into())
+        })?;
+
+    let expected = {
+        let guard = state.admin_token().lock().await;
+        guard.clone()
+    };
+
+    match expected {
+        Some(token) if token == provided => Ok(next.run(req).await),
+        Some(_) => Err(AppError::Unauthorized("invalid admin token".into())),
+        None => Err(AppError::Unauthorized(
+            "admin SSE stream not initialised yet".into(),
+        )),
+    }
 }

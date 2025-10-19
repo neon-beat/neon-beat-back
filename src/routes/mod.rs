@@ -15,7 +15,7 @@ pub fn router(state: SharedState) -> Router<()> {
         .merge(sse::router())
         .merge(websocket::router())
         .merge(public::router())
-        .merge(admin::router());
+        .merge(admin::router(state.clone()));
 
     let docs_router = docs::router(state.clone());
 
