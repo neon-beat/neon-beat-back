@@ -203,8 +203,8 @@ fn build_router(state: state::SharedState) -> Router<()> {
 
 /// Configure tracing subscribers so logs include spans by default.
 fn init_tracing() {
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "info,tower_http=debug".into());
+    let env_filter =
+        tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
     tracing_subscriber::registry()
         .with(env_filter)
         .with(tracing_subscriber::fmt::layer())
