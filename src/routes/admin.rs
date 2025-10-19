@@ -35,7 +35,7 @@ pub fn router(state: SharedState) -> Router<SharedState> {
             "/admin/games/with-playlist",
             post(create_game_with_playlist),
         )
-        .route("/admin/games/{id}", get(get_game_by_id))
+        .route("/admin/games/{id}", get(get_game_by_id).delete(delete_game))
         .route("/admin/games/{id}/load", post(load_game))
         .route(
             "/admin/playlists",
@@ -86,6 +86,23 @@ pub async fn get_game_by_id(
     Path(id): Path<Uuid>,
 ) -> Result<Json<GameSummary>, AppError> {
     Ok(Json(admin_service::get_game_by_id(&state, id).await?))
+}
+
+/// Delete a persisted game by its identifier.
+#[utoipa::path(
+    delete,
+    path = "/admin/games/{id}",
+    tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream"),
+    ("id" = String, Path, description = "Identifier of the game to delete")),
+    responses((status = 204, description = "Game deleted"))
+)]
+pub async fn delete_game(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    admin_service::delete_game(&state, id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Retrieve playlists eligible for generating new games.

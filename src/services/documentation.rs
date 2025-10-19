@@ -16,6 +16,7 @@ use utoipa::OpenApi;
         crate::routes::admin::list_playlists,
         crate::routes::admin::create_playlist,
         crate::routes::admin::get_game_by_id,
+        crate::routes::admin::delete_game,
         crate::routes::admin::load_game,
         crate::routes::admin::create_game,
         crate::routes::admin::create_game_with_playlist,

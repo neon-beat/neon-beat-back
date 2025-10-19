@@ -132,6 +132,15 @@ impl MongoGameStore {
         Ok(())
     }
 
+    async fn delete_game_internal(&self, id: Uuid) -> MongoResult<bool> {
+        let collection = self.collection().await;
+        let result = collection
+            .delete_one(doc_id(id))
+            .await
+            .map_err(|source| MongoDaoError::DeleteGame { id, source })?;
+        Ok(result.deleted_count > 0)
+    }
+
     async fn save_playlist_entity(&self, playlist: PlaylistEntity) -> MongoResult<()> {
         let collection = self.playlist_collection().await;
 
@@ -239,6 +248,11 @@ impl GameStore for MongoGameStore {
     fn list_playlists(&self) -> BoxFuture<'static, StorageResult<Vec<(Uuid, String)>>> {
         let store = self.clone();
         Box::pin(async move { store.list_playlists_internal().await.map_err(Into::into) })
+    }
+
+    fn delete_game(&self, id: Uuid) -> BoxFuture<'static, StorageResult<bool>> {
+        let store = self.clone();
+        Box::pin(async move { store.delete_game_internal(id).await.map_err(Into::into) })
     }
 
     fn health_check(&self) -> BoxFuture<'static, StorageResult<()>> {

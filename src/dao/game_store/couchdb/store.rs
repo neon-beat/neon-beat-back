@@ -1,15 +1,15 @@
-use std::sync::Arc;
+use std::{io, sync::Arc};
 
 use futures::future::BoxFuture;
 use reqwest::{Client, Method, StatusCode};
 use serde::{Serialize, de::DeserializeOwned};
-use serde_json::from_value;
+use serde_json::{Error as JsonError, from_value};
 use uuid::Uuid;
 
 use crate::dao::{
     game_store::GameStore,
     models::{GameEntity, GameListItemEntity, PlaylistEntity},
-    storage::StorageResult,
+    storage::{StorageError, StorageResult},
 };
 
 use super::{
@@ -170,6 +170,27 @@ impl CouchGameStore {
         }
     }
 
+    async fn delete_document(&self, doc_id: &str, rev: &str) -> CouchResult<()> {
+        let response = self
+            .request(Method::DELETE, doc_id)
+            .query(&[("rev", rev.to_string())])
+            .send()
+            .await
+            .map_err(|source| CouchDaoError::RequestSend {
+                path: doc_id.to_string(),
+                source,
+            })?;
+
+        if response.status().is_success() || response.status() == StatusCode::NOT_FOUND {
+            Ok(())
+        } else {
+            Err(CouchDaoError::RequestStatus {
+                path: doc_id.to_string(),
+                status: response.status(),
+            })
+        }
+    }
+
     /// Fetch documents with identifiers matching the provided prefix.
     async fn list_documents<T>(&self, prefix: &str) -> CouchResult<Vec<T>>
     where
@@ -296,6 +317,30 @@ impl GameStore for CouchGameStore {
                     (entity.id, entity.name)
                 })
                 .collect())
+        })
+    }
+
+    fn delete_game(&self, id: Uuid) -> BoxFuture<'static, StorageResult<bool>> {
+        let store = self.clone();
+        Box::pin(async move {
+            let doc_id = game_doc_id(id);
+            let Some(doc) = store.get_document::<CouchGameDocument>(&doc_id).await? else {
+                return Ok(false);
+            };
+
+            let rev = doc.rev.ok_or_else(|| CouchDaoError::DeserializeValue {
+                path: doc_id.clone(),
+                source: JsonError::io(io::Error::new(
+                    io::ErrorKind::Other,
+                    "missing _rev for CouchDB document",
+                )),
+            })?;
+
+            store
+                .delete_document(&doc_id, &rev)
+                .await
+                .map_err(StorageError::from)?;
+            Ok(true)
         })
     }
 

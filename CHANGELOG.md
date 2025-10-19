@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.3.2] - Add DELETE /admin/games/:id route
+
+- Added `DELETE /admin/games/{id}` to remove stored games (fails if the game is currently running).
+
 ## [v0.3.1] - Don't modify the game when it is manually stopped & Allow New Game + sessions
 
 - Don't modify the game when it is manually stopped (bugfix)
