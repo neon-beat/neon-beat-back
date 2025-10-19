@@ -116,6 +116,7 @@ stateDiagram-v2
    - the game contains a list of teams (teams have a unique buzzer, a name and a score)
    - the game references a persisted playlist entity (shared across games) which is embedded into the runtime session when the game starts [**WARNING**: the game considers currently that the playlist doesn't change !]
    - the game contains a game state (frequently saved in database), which contains a playlist state (the playlist state remembers whether a song has been played or not) and must match the playlist identifiers exactly
+   - new Game+ behaviour: if a playlist was completed in a prior game session, starting a this game session will treat it as a fresh run.
 - **State machine execution**: Gameplay transitions follow the diagram above (`Game state flow`), persisting progress and orchestrating pauses, reveals, and scoring.
 - **Admin controls (REST)**:
    - create/load games return a `GameSummary` payload bundling teams, shuffled playlist ordering, and timestamps
@@ -404,6 +405,10 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Validate the SSE connection
 - [x] Validate the CouchDB connection
 - [ ] Add DELETE /admin/games/:id route
+- [ ] Replace boolean value of POST /admin/game/answer route by a tri-state value (Correct, Incomplete, Wrong)
+- [ ] Add shuffle query param to /admin/start and shuffle the songs (if requester) at start, not game creation
+- [ ] Raise a specific error if a Team's buzzer ID is not connected while launching the game
+- [ ] Implement a TryFrom instead of `impl From<(GameListItemEntity, PlaylistEntity)> for GameListItem` (compare playlist IDs)
 - [ ] Remove unecessary pub(crate) functions
 - [ ] Replace Vec<Teams> by HashMap if it is better
 - [ ] Migrate from DashMap to HashMap if DashMap is useless
