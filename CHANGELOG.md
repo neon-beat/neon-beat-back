@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.4.0] - Change POST /admin/game/score into /admin/teams/{id}/score
+
+- Change POST /admin/game/score into /admin/teams/{id}/score, remove buzzer_id field from request body, and change buzzer_id field of response body into team_id
+
 ## [v0.3.2] - Add DELETE /admin/games/:id route
 
 - Added `DELETE /admin/games/{id}` to remove stored games (fails if the game is currently running).
