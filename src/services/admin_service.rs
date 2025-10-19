@@ -344,20 +344,12 @@ pub async fn stop_game(state: &SharedState) -> Result<StopGameResponse, ServiceE
         GameEvent::Finish(FinishReason::ManualStop),
         move || async move {
             let teams = {
-                let mut guard = state.current_game().write().await;
-                let game = unwrap_current_game_mut(&mut guard)?;
-                game.current_song_index = None;
-                game.found_point_fields.clear();
-                game.found_bonus_fields.clear();
-                game.updated_at = SystemTime::now();
-                game.teams
-                    .iter()
-                    .cloned()
-                    .map(TeamSummary::from)
-                    .collect::<Vec<_>>()
+                let guard = state.current_game().read().await;
+                let game = guard
+                    .as_ref()
+                    .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
+                game.teams.iter().cloned().map(Into::into).collect()
             };
-
-            state.persist_current_game().await?;
             Ok(StopGameResponse { teams })
         },
     )
