@@ -53,10 +53,17 @@ pub async fn get_current_song(state: &SharedState) -> Result<CurrentSongResponse
 /// Return the current game phase (e.g. idle, playing, reveal) and degraded mode.
 pub async fn get_game_phase(state: &SharedState) -> Result<GamePhaseResponse, ServiceError> {
     let phase = state.state_machine_phase().await;
+    let game_id = state
+        .current_game()
+        .read()
+        .await
+        .as_ref()
+        .map(|game| game.id);
     let degraded = state.is_degraded().await;
 
     Ok(GamePhaseResponse {
         phase: (&phase).into(),
+        game_id,
         degraded,
     })
 }

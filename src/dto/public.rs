@@ -22,6 +22,7 @@ pub struct CurrentSongResponse {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GamePhaseResponse {
     pub phase: VisibleGamePhase,
+    pub game_id: Option<Uuid>,
     pub degraded: bool,
 }
 
