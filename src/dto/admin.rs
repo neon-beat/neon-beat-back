@@ -135,7 +135,6 @@ pub struct StopGameResponse {
     pub teams: Vec<crate::dto::sse::TeamSummary>,
 }
 
-// TODO try_from
 impl From<(GameListItemEntity, PlaylistEntity)> for GameListItem {
     fn from((game_list_item, playlist): (GameListItemEntity, PlaylistEntity)) -> Self {
         Self {
