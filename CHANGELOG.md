@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.2.1] - feat: Set default tower_http (and every other module) log verbosity level to info
+
+- Set default tower_http (and every other module) log verbosity level to info
+
 ## [v0.2.0] - feat: Harmonize naming between teams and players (team chosen)
 
 - Replace player/players occurences by team/teams:
