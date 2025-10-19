@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.5.1] - Add optional shuffle query parameter for POST /admin/game/start
+
+- `POST /admin/game/start` accepts an optional `shuffle` query parameter to reshuffle the playlist when it hasn't started yet or after completion.
+
 ## [v0.5.0] - Change the answer validation from a boolean to a tri-state (correct, incomplete or wrong)
 
 - Change POST /admin/game/answer request body's valid field from a boolean to a tri-state (correct, incomplete or wrong)

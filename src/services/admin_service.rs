@@ -2,6 +2,7 @@
 //! Storage persistence, in-memory state updates, and state-machine transitions
 //! while honouring the single-transition-at-a-time requirement.
 
+use rand::{rng, seq::SliceRandom};
 use std::time::SystemTime;
 use tracing::debug;
 use uuid::Uuid;
@@ -225,7 +226,10 @@ pub async fn create_game_from_playlist(
 }
 
 /// Move the admin-controlled game into the running phase and expose the first song.
-pub async fn start_game(state: &SharedState) -> Result<StartGameResponse, ServiceError> {
+pub async fn start_game(
+    state: &SharedState,
+    shuffle: bool,
+) -> Result<StartGameResponse, ServiceError> {
     if let GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Ready)) =
         state.state_machine_phase().await
     {
@@ -245,6 +249,31 @@ pub async fn start_game(state: &SharedState) -> Result<StartGameResponse, Servic
                 "cannot start game while unpaired teams remain".into(),
             ));
         }
+    }
+
+    let shuffled = if shuffle {
+        let mut guard = state.current_game().write().await;
+        let game = unwrap_current_game_mut(&mut guard)?;
+        // Suffle only if the playlist has not started or was completed
+        if matches!(game.current_song_index, None | Some(0)) {
+            if game.playlist_song_order.len() > 1 {
+                let mut rng = rng();
+                game.playlist_song_order.shuffle(&mut rng);
+                game.updated_at = SystemTime::now();
+                Some(game.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if let Some(snapshot) = shuffled {
+        state.persist_current_game().await?;
+        sse_events::broadcast_game_session(state, &snapshot);
     }
 
     let song_summary = load_next_song(state, true)

@@ -123,6 +123,7 @@ stateDiagram-v2
    - pause the current song
    - resume the current song
    - add/remove points to a team
+   - optionally shuffle the playlist when starting a game via `POST /admin/game/start?shuffle=true` (only if the playlist has not started or was completed)
    - update team metadata (buzzer id, name, score)
    - reveal the current song
    - mark a field as "found"

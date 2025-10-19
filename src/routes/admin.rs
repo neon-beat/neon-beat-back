@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{Request, StatusCode},
     middleware::{self, Next},
     response::Response,
@@ -14,8 +14,8 @@ use crate::{
         admin::{
             ActionResponse, AnswerValidationRequest, CreateGameRequest, CreateTeamRequest,
             FieldsFoundResponse, GameListItem, MarkFieldRequest, NextSongResponse,
-            PlaylistListItem, ScoreAdjustmentRequest, ScoreUpdateResponse, StartGameResponse,
-            StartPairingRequest, StopGameResponse, UpdateTeamRequest,
+            PlaylistListItem, ScoreAdjustmentRequest, ScoreUpdateResponse, StartGameQuery,
+            StartGameResponse, StartPairingRequest, StopGameResponse, UpdateTeamRequest,
         },
         game::{CreateGameWithPlaylistRequest, GameSummary, PlaylistInput, PlaylistSummary},
         sse::TeamSummary,
@@ -189,13 +189,17 @@ pub async fn create_game(
     post,
     path = "/admin/game/start",
     tag = "admin",
-    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream"),
+    ("shuffle" = Option<bool>, Query, description = "Shuffle playlist before starting (default false)")),
     responses((status = 200, description = "Game started", body = StartGameResponse))
 )]
 pub async fn start_game(
     State(state): State<SharedState>,
+    Query(options): Query<StartGameQuery>,
 ) -> Result<Json<StartGameResponse>, AppError> {
-    Ok(Json(admin_service::start_game(&state).await?))
+    Ok(Json(
+        admin_service::start_game(&state, options.shuffle).await?,
+    ))
 }
 
 /// Pause the current game flow, freezing timers and buzzers.

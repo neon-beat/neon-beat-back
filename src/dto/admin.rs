@@ -38,6 +38,12 @@ pub struct CreateGameRequest {
     pub playlist_id: Uuid,
 }
 
+#[derive(Deserialize)]
+pub struct StartGameQuery {
+    #[serde(default)]
+    pub shuffle: bool,
+}
+
 /// Classifies the type of field discovered during gameplay.
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
