@@ -293,7 +293,7 @@ async fn load_next_song(
         (game.current_song_index, game.playlist_song_order.len())
     };
     let next_song_index = if start {
-        current_song_index
+        current_song_index.or(Some(0)) // "New Game +" if playlist was completed in the previous session
     } else {
         let next_song_index = current_song_index
             .map(|i| i + 1)
