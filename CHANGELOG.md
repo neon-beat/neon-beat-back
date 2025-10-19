@@ -2,15 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v0.3.0] - feat: Add authentication for admin routes
+## [v0.3.1] - Don't modify the game when it is manually stopped & Allow New Game + sessions
+
+- Don't modify the game when it is manually stopped (bugfix)
+- Allow New Game + sessions for playlist completed games : after a game with a completed playlist is loaded, starting it will treat the game as a fresh session (and stopping it will show the scores as usual)
+
+## [v0.3.0] - Add authentication for admin routes
 
 - All `/admin/**` routes now require the `X-Admin-Token` header. The value is issued via the admin SSE handshake (`/sse/admin`).
 
-## [v0.2.1] - feat: Set default tower_http (and every other module) log verbosity level to info
+## [v0.2.1] - Set default tower_http (and every other module) log verbosity level to info
 
 - Set default tower_http (and every other module) log verbosity level to info
 
-## [v0.2.0] - feat: Harmonize naming between teams and players (team chosen)
+## [v0.2.0] - Harmonize naming between teams and players (team chosen)
 
 - Replace player/players occurences by team/teams:
    - GET /admin/games route: teams field replaces players attribute in response body items
