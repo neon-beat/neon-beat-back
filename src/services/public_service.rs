@@ -37,7 +37,7 @@ pub async fn get_current_song(state: &SharedState) -> Result<CurrentSongResponse
 
     let index = game
         .current_song_index
-        .ok_or_else(|| ServiceError::NotFound("no active song".into()))?;
+        .ok_or_else(|| ServiceError::NotFound("no active song: playlist is over".into()))?;
     let (song_id, song) = game
         .get_song(index)
         .ok_or_else(|| ServiceError::InvalidState("song not found in playlist".into()))?;

@@ -297,7 +297,7 @@ async fn load_next_song(
     } else {
         let next_song_index = current_song_index
             .map(|i| i + 1)
-            .ok_or_else(|| ServiceError::InvalidState("no active song".into()))?;
+            .ok_or_else(|| ServiceError::InvalidState("no active song: playlist is over".into()))?;
         if next_song_index < playlist_length {
             Some(next_song_index)
         } else {
@@ -391,7 +391,7 @@ pub async fn mark_field_found(
 
         let index = game
             .current_song_index
-            .ok_or_else(|| ServiceError::InvalidState("no active song".into()))?;
+            .ok_or_else(|| ServiceError::InvalidState("no active song: playlist is over".into()))?;
         let expected_song_id = *game
             .playlist_song_order
             .get(index)
