@@ -50,27 +50,34 @@ flowchart LR
 ### Game state flow
 ```mermaid
 stateDiagram-v2
-    [*] --> idle
+   [*] --> Idle
 
-    note right of [*]
-        GM: Game Master
-    end note
-    note left of idle
-        Playlist and players management. Visible in admin front
-    end note
+   note right of [*]
+      GM: Game Master
+   end note
+   note left of Idle
+      Game, playlist and players management. Visible in admin front.
+   end note
 
-    idle --> game_running: start_game
-    state game_running {
-        prep --> playing_game: game_configured
-        playing_game --> pause: GM_triggers_pause
-        playing_game --> pause: buzz
-        pause --> reveal: game_master_triggers_reveal
-        pause --> playing_game: game_master_triggers_continue
-        reveal --> playing_game: GM_triggers_next
-        playing_game --> reveal: GM_triggers_reveal
-    }
-    game_running --> show_scores: playlist_end_or_GM_stops
-    show_scores --> idle: GM_ends_game
+   Idle --> GameRunning: GM creates/loads game
+   state GameRunning {
+      [*] --> Prep
+      state Prep {
+         [*] --> Ready
+         Ready --> Pairing: GM triggers pairing
+         Pairing --> Ready: Pairing completed
+         Pairing --> Ready: GM aborts pairing
+         Ready --> Playing: GM starts game
+      }
+      Playing --> Paused: GM triggers pause
+      Playing --> Paused: Buzz
+      Paused --> Reveal: GM triggers reveal
+      Paused --> Playing: GM triggers continue
+      Reveal --> Playing: GM triggers next
+      Playing --> Reveal: GM triggers reveal
+   }
+   GameRunning --> ShowScores: Playlist ended or GM stops
+   ShowScores --> Idle: GM ends game
 ```
 
 ### Buzzer state flow
@@ -381,8 +388,12 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
    - [x] get teams/players
    - [x] get song to find (& found fields)
    - [x] get game phase
+- [ ] Implement GET /admin/games/:id route
+- [ ] Add game_id to GET /public/phase route
+- [ ] No need for NEON STORE if built with a single Neon Store
+- [ ] INFO logs by default (not debug)
 - [ ] Add more logs
-- [ ] Implement buzzer testing during GamePhase::GameRunning(GameRunningPhase::Prep(_)) (test buzz)
+- [x] Implement buzzer testing during GamePhase::GameRunning(GameRunningPhase::Prep(_)) (test buzz)
 - [ ] Debounce device buzzes (~250 ms) during pairing to avoid double assigns
 - [ ] Reorganize routes if required
 - [ ] Add middleware for admin routes (check token)
