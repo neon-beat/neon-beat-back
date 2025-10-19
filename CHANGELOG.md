@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.1.5] - Add GET /admin/games/:id route and add game_id to GET /public/phase route response
+
+- Add GET /admin/games/:id route
+- Add game_id to GET /public/phase route response
+
 ## [v0.1.4] - Add more fields to the GET /admin/games response
 
 - Add players (names and ids), playlist (name and id), created_at and updated_at to the GET /admin/games response
