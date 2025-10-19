@@ -127,6 +127,7 @@ stateDiagram-v2
    - reveal the current song
    - mark a field as "found"
    - validate/invalidate an answer
+   - delete stored games when they are not the active running session
 - **Prep-phase team pairing**:
    - allow creating/updating/deleting teams while the state machine is `GameRunning::Prep`
    - enforce that buzzers are paired (or explicitly in pairing mode) before transitioning to `Playing`
@@ -404,7 +405,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Validate the WebSocket connection
 - [x] Validate the SSE connection
 - [x] Validate the CouchDB connection
-- [ ] Add DELETE /admin/games/:id route
+- [x] Add DELETE /admin/games/:id route
 - [ ] Replace boolean value of POST /admin/game/answer route by a tri-state value (Correct, Incomplete, Wrong)
 - [ ] Add shuffle query param to /admin/start and shuffle the songs (if requester) at start, not game creation
 - [ ] Raise a specific error if a Team's buzzer ID is not connected while launching the game

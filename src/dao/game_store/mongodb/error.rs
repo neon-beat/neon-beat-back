@@ -47,6 +47,12 @@ pub enum MongoDaoError {
         #[source]
         source: MongoError,
     },
+    #[error("failed to delete game `{id}`")]
+    DeleteGame {
+        id: Uuid,
+        #[source]
+        source: MongoError,
+    },
     #[error("failed to load game `{id}`")]
     LoadGame {
         id: Uuid,

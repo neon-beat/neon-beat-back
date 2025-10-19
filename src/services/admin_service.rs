@@ -139,6 +139,32 @@ pub async fn list_playlists(state: &SharedState) -> Result<Vec<PlaylistListItem>
         .collect())
 }
 
+pub async fn delete_game(state: &SharedState, id: Uuid) -> Result<(), ServiceError> {
+    let current_game_id = {
+        let guard = state.current_game().read().await;
+        guard.as_ref().map(|game| game.id)
+    };
+
+    if current_game_id == Some(id) {
+        if !matches!(state.state_machine_phase().await, GamePhase::Idle) {
+            return Err(ServiceError::InvalidState(
+                "cannot delete a game that is currently running".into(),
+            ));
+        }
+
+        let mut guard = state.current_game().write().await;
+        guard.take();
+    }
+
+    let store = state.game_store().await.ok_or(ServiceError::Degraded)?;
+    let deleted = store.delete_game(id).await?;
+    if deleted {
+        Ok(())
+    } else {
+        Err(ServiceError::NotFound(format!("game `{id}` not found")))
+    }
+}
+
 /// Create and persist a reusable playlist definition on behalf of admins.
 pub async fn create_playlist(
     state: &SharedState,
