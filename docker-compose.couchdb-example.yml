@@ -20,14 +20,15 @@ services:
       context: .
       args:
         BUILD_TARGET: ${BUILD_TARGET:-}
+        CARGO_FEATURES: " --no-default-features --features couch-store"
     environment:
-      NEON_STORE: couch
+      # NEON_STORE: couch
       COUCH_BASE_URL: http://couchdb:5984
       COUCH_DB: appdb
       COUCH_USERNAME: *couch_usr
       COUCH_PASSWORD: *couch_pwd
       PORT: "8080"
-      RUST_LOG: info
+      # RUST_LOG: info
     depends_on:
       couchdb:
         condition: service_healthy
