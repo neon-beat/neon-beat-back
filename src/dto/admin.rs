@@ -71,7 +71,6 @@ pub struct AnswerValidationRequest {
 /// Request to adjust a team's score by a delta.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ScoreAdjustmentRequest {
-    pub buzzer_id: String,
     pub delta: i32,
 }
 
@@ -84,7 +83,7 @@ pub struct ActionResponse {
 /// Result of a score adjustment, returning the updated tally.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ScoreUpdateResponse {
-    pub buzzer_id: Option<String>,
+    pub team_id: Uuid,
     pub score: i32,
 }
 
