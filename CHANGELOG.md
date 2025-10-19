@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.5.0] - Change the answer validation from a boolean to a tri-state (correct, incomplete or wrong)
+
+- Change POST /admin/game/answer request body's valid field from a boolean to a tri-state (correct, incomplete or wrong)
+- Change SSE answer_validation data's valid field from a boolean to a tri-state (correct, incomplete or wrong)
+
 ## [v0.4.0] - Change POST /admin/game/score into /admin/teams/{id}/score
 
 - Change POST /admin/game/score into /admin/teams/{id}/score, remove buzzer_id field from request body, and change buzzer_id field of response body into team_id
