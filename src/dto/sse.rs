@@ -2,7 +2,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::dto::phase::VisibleGamePhase;
+use crate::dto::{admin::AnswerValidation, phase::VisibleGamePhase};
 
 #[derive(Clone, Debug)]
 /// Dispatched payload carried across SSE channels.
@@ -65,7 +65,7 @@ pub struct FieldsFoundEvent {
 #[derive(Debug, Serialize, ToSchema)]
 /// Broadcast when an answer has been validated or invalidated.
 pub struct AnswerValidationEvent {
-    pub valid: bool,
+    pub valid: AnswerValidation,
 }
 
 #[derive(Debug, Serialize, ToSchema)]

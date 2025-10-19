@@ -62,10 +62,19 @@ pub struct FieldsFoundResponse {
     pub bonus_fields: Vec<String>,
 }
 
-/// Request to validate or reject the current answer submission.
+/// Tri-state result of an answer validation.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AnswerValidation {
+    Correct,
+    Incomplete,
+    Wrong,
+}
+
+/// Request to validate the current answer submission using a tri-state result.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct AnswerValidationRequest {
-    pub valid: bool,
+    pub valid: AnswerValidation,
 }
 
 /// Request to adjust a team's score by a delta.

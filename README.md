@@ -231,7 +231,7 @@ The remaining events represent gameplay changes. Payload types are defined in `s
 | Event name | Payload | Stream(s) | Description |
 |------------|---------|-----------|-------------|
 | `fields_found` | `FieldsFoundEvent` | public | Updated list of discovered point/bonus fields for the current song. |
-| `answer_validation` | `AnswerValidationEvent` | public | Indicates whether the latest answer was accepted. |
+| `answer_validation` | `AnswerValidationEvent` | public | Indicates the validation result: `"correct"`, `"incomplete"`, or `"wrong"`. |
 | `score_adjustment` | `TeamSummary` | public | Broadcast after manual score changes. |
 | `phase_changed` | `PhaseChangedEvent` | public + admin | FSM transition (optionally includes song snapshot, scoreboard, and paused buzzer id). |
 | `team.created` | `TeamCreatedEvent` | public + admin | Newly created team (payload wraps a `TeamSummary`). |
@@ -360,7 +360,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Implement SSE public events:
    - [x] game created/loaded: send teams
    - [x] point field / bonus point field found: send the list of point field / bonus point field (name only) found
-   - [x] validate/invalidate answer: send true or false
+   - [x] validate/invalidate answer: send one of `"correct"`, `"incomplete"` or `"wrong"`
    - [x] add/remove points for a team: send the points to add (or remove) to a team (team id)
    - [x] game phase changed to new phase: playing (with next song or not), pause, reveal, scores (list of teams with their scores), idle
 - [x] Implement SSE admin events:
@@ -406,7 +406,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Validate the SSE connection
 - [x] Validate the CouchDB connection
 - [x] Add DELETE /admin/games/:id route
-- [ ] Replace boolean value of POST /admin/game/answer route by a tri-state value (Correct, Incomplete, Wrong)
+- [x] Replace boolean value of POST /admin/game/answer route by a tri-state value (Correct, Incomplete, Wrong)
 - [ ] Add shuffle query param to /admin/start and shuffle the songs (if requester) at start, not game creation
 - [ ] Raise a specific error if a Team's buzzer ID is not connected while launching the game
 - [ ] Implement a TryFrom instead of `impl From<(GameListItemEntity, PlaylistEntity)> for GameListItem` (compare playlist IDs)
