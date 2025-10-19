@@ -87,20 +87,11 @@ pub struct GameSession {
 
 impl GameSession {
     /// Build a new in-memory session with the provided metadata.
-    ///
-    /// The playlist order is shuffled once using the playlist song ids so a
-    /// fresh game starts with a randomized sequence while keeping deterministic
-    /// identifiers for persistence and DTO conversions.
     pub fn new(name: String, teams: Vec<Team>, playlist: Playlist) -> Self {
         let timestamp = SystemTime::now();
 
-        let mut playlist_song_order: Vec<u32> =
+        let playlist_song_order: Vec<u32> =
             playlist.songs.iter().map(|entry| *entry.key()).collect();
-
-        if playlist_song_order.len() > 1 {
-            let mut rng = rng();
-            playlist_song_order.shuffle(&mut rng);
-        }
 
         Self {
             id: Uuid::new_v4(),
