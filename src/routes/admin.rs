@@ -30,6 +30,7 @@ pub fn router() -> Router<SharedState> {
             "/admin/games/with-playlist",
             post(create_game_with_playlist),
         )
+        .route("/admin/games/{id}", get(get_game_by_id))
         .route("/admin/games/{id}/load", post(load_game))
         .route(
             "/admin/playlists",
@@ -62,6 +63,21 @@ pub async fn list_games(
     State(state): State<SharedState>,
 ) -> Result<Json<Vec<GameListItem>>, AppError> {
     Ok(Json(admin_service::list_games(&state).await?))
+}
+
+/// Retrieve a game by its ID.
+#[utoipa::path(
+    get,
+    path = "/admin/games/{id}",
+    tag = "admin",
+    params(("id" = String, Path, description = "Identifier of the game to retrieve")),
+    responses((status = 200, description = "Game", body = GameSummary))
+)]
+pub async fn get_game_by_id(
+    State(state): State<SharedState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<GameSummary>, AppError> {
+    Ok(Json(admin_service::get_game_by_id(&state, id).await?))
 }
 
 /// Retrieve playlists eligible for generating new games.

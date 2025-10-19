@@ -388,7 +388,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
    - [x] get teams/players
    - [x] get song to find (& found fields)
    - [x] get game phase
-- [ ] Implement GET /admin/games/:id route
+- [x] Implement GET /admin/games/:id route
 - [x] Add game_id to GET /public/phase route
 - [ ] No need for NEON STORE if built with a single Neon Store
 - [ ] INFO logs by default (not debug)

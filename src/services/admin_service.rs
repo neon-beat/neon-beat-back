@@ -110,6 +110,25 @@ pub async fn list_games(state: &SharedState) -> Result<Vec<GameListItem>, Servic
     Ok(games_list)
 }
 
+pub async fn get_game_by_id(state: &SharedState, id: Uuid) -> Result<GameSummary, ServiceError> {
+    let store = state.require_game_store().await?;
+
+    let Some(game) = store.find_game(id).await? else {
+        return Err(ServiceError::NotFound(format!("game `{id}` not found")));
+    };
+
+    let playlist = store
+        .find_playlist(game.playlist_id)
+        .await?
+        .ok_or_else(|| {
+            ServiceError::NotFound(format!("playlist {} not found", game.playlist_id))
+        })?;
+
+    let game_session: GameSession = (game, playlist).into();
+
+    Ok(game_session.into())
+}
+
 /// Return the playlists that can seed new games.
 pub async fn list_playlists(state: &SharedState) -> Result<Vec<PlaylistListItem>, ServiceError> {
     let store = state.require_game_store().await?;
