@@ -13,7 +13,7 @@ use crate::{
     },
     state::{
         SharedState,
-        game::{GameSession, Player},
+        game::{GameSession, Team},
         state_machine::{GamePhase, GameRunningPhase, PauseKind},
     },
 };
@@ -53,7 +53,7 @@ pub fn broadcast_answer_validation(state: &SharedState, valid: bool) {
 }
 
 /// Broadcast a score adjustment for a specific team.
-pub fn broadcast_score_adjustment(state: &SharedState, team: Player) {
+pub fn broadcast_score_adjustment(state: &SharedState, team: Team) {
     let payload = TeamSummary::from(team);
     send_public_event(state, EVENT_SCORE_ADJUSTMENT, &payload);
 }
@@ -101,7 +101,7 @@ pub fn broadcast_pairing_assigned(state: &SharedState, team_id: Uuid, buzzer_id:
 }
 
 /// Broadcast that pairing snapshot was restored.
-pub fn broadcast_pairing_restored(state: &SharedState, snapshot: &[Player]) {
+pub fn broadcast_pairing_restored(state: &SharedState, snapshot: &[Team]) {
     let payload = PairingRestoredEvent {
         snapshot: snapshot.iter().cloned().map(TeamSummary::from).collect(),
     };
@@ -123,8 +123,8 @@ pub async fn broadcast_phase_changed(state: &SharedState, phase: &GamePhase) {
     }
 }
 
-fn players_to_summaries(players: &[Player]) -> Vec<TeamSummary> {
-    players.iter().cloned().map(TeamSummary::from).collect()
+fn teams_to_summaries(teams: &[Team]) -> Vec<TeamSummary> {
+    teams.iter().cloned().map(TeamSummary::from).collect()
 }
 
 fn send_public_event(state: &SharedState, event: &str, payload: &impl Serialize) {
@@ -183,7 +183,7 @@ fn song_snapshot_for_phase(game: &GameSession, phase: &GamePhase) -> Option<Song
 
 fn scoreboard_for_phase(game: &GameSession, phase: &GamePhase) -> Option<Vec<TeamSummary>> {
     match phase {
-        GamePhase::ShowScores => Some(players_to_summaries(&game.players)),
+        GamePhase::ShowScores => Some(teams_to_summaries(&game.teams)),
         _ => None,
     }
 }

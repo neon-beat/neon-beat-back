@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::dao::models::{GameEntity, PlayerEntity, PlaylistEntity, SongEntity};
+use crate::dao::models::{GameEntity, PlaylistEntity, SongEntity, TeamEntity};
 
 pub const GAME_PREFIX: &str = "game::";
 pub const PLAYLIST_PREFIX: &str = "playlist::";
@@ -37,7 +37,7 @@ pub struct GameBody {
     pub name: String,
     pub created_at: SystemTime,
     pub updated_at: SystemTime,
-    pub players: Vec<PlayerEntity>,
+    pub teams: Vec<TeamEntity>,
     pub playlist_id: Uuid,
     pub playlist_song_order: Vec<u32>,
     pub current_song_index: Option<usize>,
@@ -52,7 +52,7 @@ impl CouchGameDocument {
                 name: value.name,
                 created_at: value.created_at,
                 updated_at: value.updated_at,
-                players: value.players,
+                teams: value.teams,
                 playlist_id: value.playlist_id,
                 playlist_song_order: value.playlist_song_order,
                 current_song_index: value.current_song_index,
@@ -66,7 +66,7 @@ impl CouchGameDocument {
             name: self.game.name,
             created_at: self.game.created_at,
             updated_at: self.game.updated_at,
-            players: self.game.players,
+            teams: self.game.teams,
             playlist_id: self.game.playlist_id,
             playlist_song_order: self.game.playlist_song_order,
             current_song_index: self.game.current_song_index,

@@ -8,7 +8,7 @@ use crate::{
     dao::models::{GameListItemEntity, PlaylistEntity},
     dto::{
         format_system_time,
-        game::{PlayerBriefSummary, PlayerInput, SongSummary},
+        game::{SongSummary, TeamBriefSummary, TeamInput},
     },
 };
 
@@ -19,7 +19,7 @@ pub struct GameListItem {
     pub name: String,
     pub created_at: String,
     pub updated_at: String,
-    pub players: Vec<PlayerBriefSummary>,
+    pub teams: Vec<TeamBriefSummary>,
     pub playlist: PlaylistListItem,
 }
 
@@ -34,7 +34,7 @@ pub struct PlaylistListItem {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateGameRequest {
     pub name: String,
-    pub players: Vec<PlayerInput>,
+    pub teams: Vec<TeamInput>,
     pub playlist_id: Uuid,
 }
 
@@ -143,7 +143,7 @@ impl From<(GameListItemEntity, PlaylistEntity)> for GameListItem {
             name: game_list_item.name,
             created_at: format_system_time(game_list_item.created_at),
             updated_at: format_system_time(game_list_item.updated_at),
-            players: game_list_item.players.into_iter().map(Into::into).collect(),
+            teams: game_list_item.teams.into_iter().map(Into::into).collect(),
             playlist: PlaylistListItem {
                 id: playlist.id,
                 name: playlist.name,

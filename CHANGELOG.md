@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.2.0] - feat: Harmonize naming between teams and players (team chosen)
+
+- Replace player/players occurences by team/teams:
+   - GET /admin/games route: teams field replaces players attribute in response body items
+   - POST /admin/games & POST /admin/games/with-playlist routes: teams field replaces players attribute in request and response bodies
+
 ## [v0.1.5] - Add GET /admin/games/:id route and add game_id to GET /public/phase route response
 
 - Add GET /admin/games/:id route

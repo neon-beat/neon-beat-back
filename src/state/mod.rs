@@ -11,7 +11,7 @@ use crate::{
     dto::ws::BuzzFeedback,
     error::ServiceError,
     state::{
-        game::{GameSession, Player},
+        game::{GameSession, Team},
         state_machine::{GamePhase, PairingSession},
     },
 };
@@ -157,11 +157,10 @@ impl AppState {
         }
     }
 
-    /// Check whether every player in `players` has an active buzzer connection registered.
-    pub fn all_teams_paired(&self, players: &[Player]) -> bool {
-        players.iter().all(|player| {
-            player
-                .buzzer_id
+    /// Check whether every team in `teams` has an active buzzer connection registered.
+    pub fn all_teams_paired(&self, teams: &[Team]) -> bool {
+        teams.iter().all(|team| {
+            team.buzzer_id
                 .as_ref()
                 .is_some_and(|id| self.buzzers.contains_key(id))
         })

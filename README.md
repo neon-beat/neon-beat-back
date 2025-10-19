@@ -56,7 +56,7 @@ stateDiagram-v2
       GM: Game Master
    end note
    note left of Idle
-      Game, playlist and players management. Visible in admin front.
+      Game, playlist and teams management. Visible in admin front.
    end note
 
    Idle --> GameRunning: GM creates/loads game
@@ -113,12 +113,12 @@ stateDiagram-v2
    - "Bonus point fields" are optional fields to find for the song, that can give bonus points to a team (this list of field is dynamic and may be empty)
    - During game bootstrap the playlist song order is shuffled once to create a random play sequence; persisted games must provide the same identifiers to guarantee consistency.
 - **Game bootstrap**: Game can be created or loaded (from database) during the idle state:
-   - the game contains a list of players (players have a unique buzzer, a name and a score)
+   - the game contains a list of teams (teams have a unique buzzer, a name and a score)
    - the game references a persisted playlist entity (shared across games) which is embedded into the runtime session when the game starts [**WARNING**: the game considers currently that the playlist doesn't change !]
    - the game contains a game state (frequently saved in database), which contains a playlist state (the playlist state remembers whether a song has been played or not) and must match the playlist identifiers exactly
 - **State machine execution**: Gameplay transitions follow the diagram above (`Game state flow`), persisting progress and orchestrating pauses, reveals, and scoring.
 - **Admin controls (REST)**:
-   - create/load games return a `GameSummary` payload bundling players, shuffled playlist ordering, and timestamps
+   - create/load games return a `GameSummary` payload bundling teams, shuffled playlist ordering, and timestamps
    - pause the current song
    - resume the current song
    - add/remove points to a team
@@ -235,7 +235,7 @@ The remaining events represent gameplay changes. Payload types are defined in `s
 | `team.created` | `TeamCreatedEvent` | public + admin | Newly created team (payload wraps a `TeamSummary`). |
 | `team.updated` | `TeamUpdatedEvent` | public | Existing team metadata changed (name, buzzer, or score). |
 | `team.deleted` | `TeamDeletedEvent` | public | Team removed; payload only contains the team UUID. |
-| `game.session` | `GameSummary` | public | Full game snapshot (players, playlist ordering, timestamps). |
+| `game.session` | `GameSummary` | public | Full game snapshot (teams, playlist ordering, timestamps). |
 | `pairing.waiting` | `PairingWaitingEvent` | public + admin | Announces which team should pair a buzzer next. |
 | `pairing.assigned` | `PairingAssignedEvent` | public + admin | Confirms a buzzer assignment during pairing. |
 | `pairing.restored` | `PairingRestoredEvent` | public | Snapshot broadcast after aborting pairing. |
@@ -355,7 +355,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
    - [x] game created/loaded: send teams
    - [x] point field / bonus point field found: send the list of point field / bonus point field (name only) found
    - [x] validate/invalidate answer: send true or false
-   - [x] add/remove points for a team: send the points to add (or remove) to a team (player id)
+   - [x] add/remove points for a team: send the points to add (or remove) to a team (team id)
    - [x] game phase changed to new phase: playing (with next song or not), pause, reveal, scores (list of teams with their scores), idle
 - [x] Implement SSE admin events:
    - [x] game phase changed to new phase: playing (with next song or not), pause, reveal, scores (list of teams with their scores), idle
@@ -385,7 +385,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Support multiple DB and choose the one at buildtime or runtime
 - [x] Team management & team/buzzer pairing
 - [x] Implement public routes:
-   - [x] get teams/players
+   - [x] get teams
    - [x] get song to find (& found fields)
    - [x] get game phase
 - [x] Implement GET /admin/games/:id route
@@ -404,10 +404,10 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [ ] Validate the MongoDB connection
 - [ ] Send encountered errors to admin SSE during WS handles
 - [ ] Remove unecessary pub(crate) functions
-- [ ] Rename Player to Team (or find a new name)
+- [x] Rename Player to Team (or find a new name)
 - [ ] Replace Vec<Teams> by HashMap if it is better
 - [ ] Create game/playlist IDs from store
-- [x] Review PlayerInput: is buzzer_id really needed ?
+- [x] Review TeamInput: is buzzer_id really needed ?
 - [ ] Migrate from DashMap to HashMap if DashMap is useless
 - [ ] Allow to create a game in degraded mode (save the session & playlist later)
 - [ ] Add axum validation
@@ -421,7 +421,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 
 - Do we want to manage public SSE deconnexion ? No
 - Do we want to modify a playlist when it is already imported in the backend ? No, we import again
-- Do we want to add a timeout when a player has buzzed (to resume the game) ? Add an int config property (default: Infinite)
+- Do we want to add a timeout when a team has buzzed (to resume the game) ? Add an int config property (default: Infinite)
 - Do we want to prevent the previous buzzer to buzz again ? Add a bool config property (default: re-buzz authorized)
 - Do we want to serve the OpenAPI documentation as a Github Page ?
 - Do we want Game and Playlist name unicity ?

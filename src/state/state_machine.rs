@@ -3,7 +3,7 @@ use std::time::Instant;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::state::game::Player;
+use crate::state::game::Team;
 
 /// High-level phases the game can be in.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,7 +39,7 @@ pub enum PrepStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PairingSession {
     pub pairing_team_id: Uuid,
-    pub snapshot: Vec<Player>,
+    pub snapshot: Vec<Team>,
 }
 
 /// Represents why the game entered a paused state.

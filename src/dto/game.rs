@@ -8,20 +8,20 @@ use uuid::Uuid;
 
 use crate::{
     dto::format_system_time,
-    state::game::{GameSession, Player, Playlist, PointField, Song},
+    state::game::{GameSession, Playlist, PointField, Song, Team},
 };
 
 /// Payload used to bootstrap a brand-new game instance.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateGameWithPlaylistRequest {
     pub name: String,
-    pub players: Vec<PlayerInput>,
+    pub teams: Vec<TeamInput>,
     pub playlist: PlaylistInput,
 }
 
-/// Incoming player definition for the game bootstrap.
+/// Incoming team definition for the game bootstrap.
 #[derive(Debug, Deserialize, ToSchema)]
-pub struct PlayerInput {
+pub struct TeamInput {
     pub buzzer_id: Option<String>,
     pub name: String,
 }
@@ -59,13 +59,13 @@ pub struct GameSummary {
     pub name: String,
     pub created_at: String,
     pub updated_at: String,
-    pub players: Vec<PlayerSummary>,
+    pub teams: Vec<TeamSummary>,
     pub playlist: PlaylistSummary,
     pub current_song_index: Option<usize>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
-pub struct PlayerSummary {
+pub struct TeamSummary {
     pub id: Uuid,
     pub buzzer_id: Option<String>,
     pub name: String,
@@ -73,7 +73,7 @@ pub struct PlayerSummary {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
-pub struct PlayerBriefSummary {
+pub struct TeamBriefSummary {
     pub id: Uuid,
     pub name: String,
 }
@@ -118,13 +118,13 @@ impl From<PointField> for PointFieldSummary {
     }
 }
 
-impl From<Player> for PlayerSummary {
-    fn from(player: Player) -> Self {
+impl From<Team> for TeamSummary {
+    fn from(team: Team) -> Self {
         Self {
-            id: player.id,
-            buzzer_id: player.buzzer_id,
-            name: player.name,
-            score: player.score,
+            id: team.id,
+            buzzer_id: team.buzzer_id,
+            name: team.name,
+            score: team.score,
         }
     }
 }
@@ -167,7 +167,7 @@ impl From<GameSession> for GameSummary {
             name: session.name,
             created_at: format_system_time(session.created_at),
             updated_at: format_system_time(session.updated_at),
-            players: session.players.into_iter().map(Into::into).collect(),
+            teams: session.teams.into_iter().map(Into::into).collect(),
             playlist: playlist_summary,
             current_song_index: session.current_song_index,
         }
