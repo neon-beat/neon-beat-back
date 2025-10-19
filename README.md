@@ -243,6 +243,10 @@ The remaining events represent gameplay changes. Payload types are defined in `s
 
 Keep-alive comments are sent every 15 seconds so most SSE clients will stay connected by default.
 
+#### Admin API authentication
+
+All `/admin/**` routes now require the token issued by the admin SSE stream. After a client connects to `/sse/admin`, the initial `handshake` event includes a `token` field. Subsequent admin REST requests must supply this value in the `X-Admin-Token` header (case insensitive). Requests without a token, or with a stale token after the SSE stream disconnects, receive `401 Unauthorized`.
+
 ## Getting started
 
 ### Prerequisites
@@ -396,7 +400,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Implement buzzer testing during GamePhase::GameRunning(GameRunningPhase::Prep(_)) (test buzz)
 - [ ] Debounce device buzzes (~250 ms) during pairing to avoid double assigns
 - [ ] Reorganize routes if required
-- [ ] Add middleware for admin routes (check token)
+- [x] Add middleware for admin routes (check token)
 - [ ] Better management for errors
 - [ ] Validate the Rest API /healthcheck route
 - [ ] Validate the WebSocket connection
