@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::{
     dto::{
+        admin::AnswerValidation,
         game::GameSummary,
         sse::{
             AnswerValidationEvent, FieldsFoundEvent, PairingAssignedEvent, PairingRestoredEvent,
@@ -47,7 +48,7 @@ pub fn broadcast_fields_found(
 }
 
 /// Broadcast whether the current answer has been validated or invalidated.
-pub fn broadcast_answer_validation(state: &SharedState, valid: bool) {
+pub fn broadcast_answer_validation(state: &SharedState, valid: AnswerValidation) {
     let payload = AnswerValidationEvent { valid };
     send_public_event(state, EVENT_ANSWER_VALIDATION, &payload);
 }
