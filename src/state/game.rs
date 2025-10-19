@@ -5,9 +5,9 @@ use uuid::Uuid;
 
 use crate::{
     dao::models::{
-        GameEntity, PlayerEntity, PlayerSummaryEntity, PlaylistEntity, PointFieldEntity, SongEntity,
+        GameEntity, PlaylistEntity, PointFieldEntity, SongEntity, TeamEntity, TeamSummaryEntity,
     },
-    dto::game::PlayerBriefSummary,
+    dto::game::TeamBriefSummary,
 };
 
 /// Runtime representation of a playlist with its songs keyed by identifier.
@@ -47,16 +47,16 @@ pub struct PointField {
     pub points: u8,
 }
 
-/// Player info tracked during a game session.
+/// Team info tracked during a game session.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Player {
-    /// Stable identifier for this team/player.
+pub struct Team {
+    /// Stable identifier for this team.
     pub id: Uuid,
     /// Unique buzzer identifier (12 lowercase hexadecimal characters).
     pub buzzer_id: Option<String>,
-    /// Display name chosen for the player/team.
+    /// Display name chosen for the team.
     pub name: String,
-    /// Current score for the player.
+    /// Current score for the team.
     pub score: i32,
 }
 
@@ -71,8 +71,8 @@ pub struct GameSession {
     pub created_at: SystemTime,
     /// Last time the game document was updated.
     pub updated_at: SystemTime,
-    /// Participating players and their current scores.
-    pub players: Vec<Player>,
+    /// Participating teams and their current scores.
+    pub teams: Vec<Team>,
     /// Playlist selected for this session.
     pub playlist: Playlist,
     /// Oredered list of songs IDs from the playlist, defining the playlist order.
@@ -91,7 +91,7 @@ impl GameSession {
     /// The playlist order is shuffled once using the playlist song ids so a
     /// fresh game starts with a randomized sequence while keeping deterministic
     /// identifiers for persistence and DTO conversions.
-    pub fn new(name: String, players: Vec<Player>, playlist: Playlist) -> Self {
+    pub fn new(name: String, teams: Vec<Team>, playlist: Playlist) -> Self {
         let timestamp = SystemTime::now();
 
         let mut playlist_song_order: Vec<u32> =
@@ -107,7 +107,7 @@ impl GameSession {
             name,
             created_at: timestamp,
             updated_at: timestamp,
-            players,
+            teams,
             playlist,
             playlist_song_order,
             current_song_index: Some(0),
@@ -209,8 +209,8 @@ impl From<Playlist> for PlaylistEntity {
     }
 }
 
-impl From<PlayerEntity> for Player {
-    fn from(value: PlayerEntity) -> Self {
+impl From<TeamEntity> for Team {
+    fn from(value: TeamEntity) -> Self {
         Self {
             id: value.id,
             buzzer_id: value.buzzer_id,
@@ -220,8 +220,8 @@ impl From<PlayerEntity> for Player {
     }
 }
 
-impl From<Player> for PlayerEntity {
-    fn from(value: Player) -> Self {
+impl From<Team> for TeamEntity {
+    fn from(value: Team) -> Self {
         Self {
             id: value.id,
             buzzer_id: value.buzzer_id,
@@ -231,8 +231,8 @@ impl From<Player> for PlayerEntity {
     }
 }
 
-impl From<PlayerSummaryEntity> for PlayerBriefSummary {
-    fn from(value: PlayerSummaryEntity) -> Self {
+impl From<TeamSummaryEntity> for TeamBriefSummary {
+    fn from(value: TeamSummaryEntity) -> Self {
         Self {
             id: value.id,
             name: value.name,
@@ -247,7 +247,7 @@ impl From<(GameEntity, PlaylistEntity)> for GameSession {
             name: game.name,
             created_at: game.created_at,
             updated_at: game.updated_at,
-            players: game.players.into_iter().map(Into::into).collect(),
+            teams: game.teams.into_iter().map(Into::into).collect(),
             playlist: playlist.into(),
             playlist_song_order: game.playlist_song_order,
             current_song_index: game.current_song_index,
@@ -264,7 +264,7 @@ impl From<GameSession> for GameEntity {
             name: value.name,
             created_at: value.created_at,
             updated_at: value.updated_at,
-            players: value.players.into_iter().map(Into::into).collect(),
+            teams: value.teams.into_iter().map(Into::into).collect(),
             playlist_id: value.playlist.id,
             playlist_song_order: value.playlist_song_order,
             current_song_index: value.current_song_index,

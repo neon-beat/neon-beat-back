@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-/// Return the current teams/players exposed to the public UI.
+/// Return the current teams exposed to the public UI.
 pub async fn get_teams(state: &SharedState) -> Result<TeamsResponse, ServiceError> {
     let guard = state.current_game().read().await;
     let game = guard
@@ -20,7 +20,7 @@ pub async fn get_teams(state: &SharedState) -> Result<TeamsResponse, ServiceErro
         .ok_or_else(|| ServiceError::NotFound("no active game".into()))?;
 
     let teams = game
-        .players
+        .teams
         .clone()
         .into_iter()
         .map(TeamSummary::from)

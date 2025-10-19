@@ -18,7 +18,7 @@ use crate::{
     },
     state::{
         BuzzerConnection, SharedState,
-        game::Player,
+        game::Team,
         state_machine::{GameEvent, GamePhase, GameRunningPhase, PauseKind, PrepStatus},
         transitions::run_transition_with_broadcast,
     },
@@ -209,22 +209,22 @@ async fn handle_prep_ready_buzz(state: &SharedState, buzzer_id: &str) -> Result<
         .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
 
     if let Some(team) = game
-        .players
+        .teams
         .iter()
-        .find(|player| player.buzzer_id.as_deref() == Some(buzzer_id))
+        .find(|team| team.buzzer_id.as_deref() == Some(buzzer_id))
         .cloned()
     {
         sse_events::broadcast_test_buzz(state, team.id);
-    } else if state.all_teams_paired(&game.players) {
-        let new_team = Player {
+    } else if state.all_teams_paired(&game.teams) {
+        let new_team = Team {
             id: Uuid::new_v4(),
             buzzer_id: Some(buzzer_id.to_string()),
-            name: format!("Team {}", game.players.len() + 1),
+            name: format!("Team {}", game.teams.len() + 1),
             score: 0,
         };
 
         let summary = TeamSummary::from(new_team.clone());
-        game.players.push(new_team);
+        game.teams.push(new_team);
 
         state.persist_current_game().await?;
         sse_events::broadcast_team_created(state, summary.clone());
@@ -249,19 +249,19 @@ async fn handle_prep_pairing_buzz(
         .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
 
     let team = game
-        .players
+        .teams
         .iter_mut()
-        .find(|player| player.id == team_id)
+        .find(|team| team.id == team_id)
         .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
     team.buzzer_id = Some(buzzer_id.to_string());
 
-    for player in game.players.iter_mut() {
-        if player.id != team_id && player.buzzer_id.as_deref() == Some(buzzer_id) {
-            player.buzzer_id = None;
+    for team in game.teams.iter_mut() {
+        if team.id != team_id && team.buzzer_id.as_deref() == Some(buzzer_id) {
+            team.buzzer_id = None;
         }
     }
 
-    let roster = game.players.clone();
+    let roster = game.teams.clone();
     drop(guard);
 
     let pairing_progress =
@@ -287,16 +287,16 @@ fn is_valid_buzzer_id(value: &str) -> bool {
 }
 
 async fn handle_playing_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), ServiceError> {
-    let player_known = {
+    let team_known = {
         let guard = state.current_game().read().await;
         guard.as_ref().is_some_and(|game| {
-            game.players
+            game.teams
                 .iter()
-                .any(|player| player.buzzer_id.as_deref() == Some(buzzer_id))
+                .any(|team| team.buzzer_id.as_deref() == Some(buzzer_id))
         })
     };
 
-    if !player_known {
+    if !team_known {
         return Err(ServiceError::InvalidState(format!(
             "Buzz ignored: unknown buzzer ID `{buzzer_id}`"
         )));

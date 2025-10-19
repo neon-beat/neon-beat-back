@@ -39,25 +39,25 @@ pub struct PointFieldEntity {
     pub points: u8,
 }
 
-/// Representation of a player stored in persistence and shared across layers.
+/// Representation of a team stored in persistence and shared across layers.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PlayerEntity {
+pub struct TeamEntity {
     /// Stable identifier for the team.
     pub id: Uuid,
     /// Unique buzzer identifier (12 lowercase hexadecimal characters).
     pub buzzer_id: Option<String>,
-    /// Display name chosen for the player/team.
+    /// Display name chosen for the team.
     pub name: String,
-    /// Current score for the player.
+    /// Current score for the team.
     pub score: i32,
 }
 
-/// Summary representation of a player stored in persistence and shared across layers.
+/// Summary representation of a team stored in persistence and shared across layers.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PlayerSummaryEntity {
+pub struct TeamSummaryEntity {
     /// Stable identifier for the team.
     pub id: Uuid,
-    /// Display name chosen for the player/team.
+    /// Display name chosen for the team.
     pub name: String,
 }
 
@@ -72,8 +72,8 @@ pub struct GameEntity {
     pub created_at: SystemTime,
     /// Last time the game entity was updated.
     pub updated_at: SystemTime,
-    /// Participating players and their current scores.
-    pub players: Vec<PlayerEntity>,
+    /// Participating teams and their current scores.
+    pub teams: Vec<TeamEntity>,
     /// ID of the playlist used in this game session.
     pub playlist_id: Uuid,
     /// Oredered list of songs IDs from the playlist, defining the playlist order.
@@ -93,14 +93,14 @@ pub struct GameListItemEntity {
     pub created_at: SystemTime,
     /// Last time the game entity was updated.
     pub updated_at: SystemTime,
-    /// Participating players.
-    pub players: Vec<PlayerSummaryEntity>,
+    /// Participating teams.
+    pub teams: Vec<TeamSummaryEntity>,
     /// ID of the playlist used in this game session.
     pub playlist_id: Uuid,
 }
 
-impl From<PlayerEntity> for PlayerSummaryEntity {
-    fn from(value: PlayerEntity) -> Self {
+impl From<TeamEntity> for TeamSummaryEntity {
+    fn from(value: TeamEntity) -> Self {
         Self {
             id: value.id,
             name: value.name,
@@ -115,7 +115,7 @@ impl From<GameEntity> for GameListItemEntity {
             name: entity.name,
             created_at: entity.created_at,
             updated_at: entity.updated_at,
-            players: entity.players.into_iter().map(Into::into).collect(),
+            teams: entity.teams.into_iter().map(Into::into).collect(),
             playlist_id: entity.playlist_id,
         }
     }

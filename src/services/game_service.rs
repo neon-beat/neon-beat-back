@@ -5,12 +5,12 @@ use uuid::Uuid;
 
 use crate::{
     dao::models::{GameEntity, PlaylistEntity},
-    dto::game::{GameSummary, PlayerInput, PlaylistInput, PlaylistSummary, SongInput},
+    dto::game::{GameSummary, PlaylistInput, PlaylistSummary, SongInput, TeamInput},
     error::ServiceError,
     services::sse_events,
     state::{
         self, SharedState,
-        game::{GameSession, Player, Playlist, PointField, Song},
+        game::{GameSession, Playlist, PointField, Song, Team},
     },
 };
 
@@ -47,7 +47,7 @@ pub async fn create_playlist(
 pub async fn create_game(
     state: &SharedState,
     name: String,
-    players: Vec<PlayerInput>,
+    teams: Vec<TeamInput>,
     playlist_id: Uuid,
     playlist: Option<Playlist>,
 ) -> Result<GameSummary, ServiceError> {
@@ -59,10 +59,10 @@ pub async fn create_game(
         ));
     }
 
-    let players = if players.is_empty() {
+    let teams = if teams.is_empty() {
         vec![]
     } else {
-        build_players(players)?
+        build_teams(teams)?
     };
 
     let store = state.game_store().await.ok_or(ServiceError::Degraded)?;
@@ -80,7 +80,7 @@ pub async fn create_game(
         ));
     }
 
-    let game = GameSession::new(name, players, playlist);
+    let game = GameSession::new(name, teams, playlist);
     if game.playlist_song_order.is_empty() {
         panic!("playlist_song_order should not be empty")
     };
@@ -145,12 +145,12 @@ async fn ensure_idle(state: &SharedState) -> Result<(), ServiceError> {
     Ok(())
 }
 
-fn build_players(players: Vec<PlayerInput>) -> Result<Vec<Player>, ServiceError> {
+fn build_teams(teams: Vec<TeamInput>) -> Result<Vec<Team>, ServiceError> {
     let mut seen_ids = HashSet::new();
-    players
+    teams
         .into_iter()
-        .map(|player| {
-            let buzzer_id = player
+        .map(|team| {
+            let buzzer_id = team
                 .buzzer_id
                 .as_ref()
                 .map(|id| sanitize_buzzer_id(id))
@@ -167,16 +167,16 @@ fn build_players(players: Vec<PlayerInput>) -> Result<Vec<Player>, ServiceError>
                 })
                 .transpose()?;
 
-            if player.name.trim().is_empty() {
+            if team.name.trim().is_empty() {
                 return Err(ServiceError::InvalidInput(
-                    "player name must not be empty".into(),
+                    "team name must not be empty".into(),
                 ));
             }
 
-            Ok(Player {
+            Ok(Team {
                 id: Uuid::new_v4(),
                 buzzer_id,
-                name: player.name,
+                name: team.name,
                 score: 0,
             })
         })
@@ -249,9 +249,9 @@ fn validate_persisted_game(
     game: &GameEntity,
     playlist: &PlaylistEntity,
 ) -> Result<(), ServiceError> {
-    if game.players.is_empty() {
+    if game.teams.is_empty() {
         return Err(ServiceError::InvalidState(format!(
-            "game `{}` has no registered players",
+            "game `{}` has no registered teams",
             game.id
         )));
     }

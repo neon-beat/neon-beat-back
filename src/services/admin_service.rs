@@ -27,7 +27,7 @@ use crate::{
     },
     state::{
         SharedState,
-        game::{GameSession, Player, PointField},
+        game::{GameSession, PointField, Team},
         state_machine::{
             FinishReason, GameEvent, GamePhase, GameRunningPhase, PairingSession, PauseKind,
             PrepStatus,
@@ -58,9 +58,9 @@ fn assert_unique_buzzer(
     buzzer_id: &str,
 ) -> Result<(), ServiceError> {
     if game
-        .players
+        .teams
         .iter()
-        .any(|player| player.buzzer_id.as_deref() == Some(buzzer_id) && Some(player.id) != exclude)
+        .any(|team| team.buzzer_id.as_deref() == Some(buzzer_id) && Some(team.id) != exclude)
     {
         return Err(ServiceError::InvalidInput(format!(
             "duplicate buzzer id `{buzzer_id}` detected"
@@ -171,7 +171,7 @@ pub async fn create_game(
         game_service::create_game(
             state,
             request.name,
-            request.players,
+            request.teams,
             playlist_model.id,
             Some(playlist_model),
         )
@@ -189,7 +189,7 @@ pub async fn create_game_from_playlist(
         game_service::create_game(
             state,
             request.name,
-            request.players,
+            request.teams,
             request.playlist_id,
             None,
         )
@@ -208,13 +208,13 @@ pub async fn start_game(state: &SharedState) -> Result<StartGameResponse, Servic
             .as_ref()
             .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
 
-        if game.players.is_empty() {
+        if game.teams.is_empty() {
             return Err(ServiceError::InvalidInput(
-                "cannot start a game without at least one player".into(),
+                "cannot start a game without at least one team".into(),
             ));
         }
 
-        if !state.all_teams_paired(&game.players) {
+        if !state.all_teams_paired(&game.teams) {
             return Err(ServiceError::InvalidState(
                 "cannot start game while unpaired teams remain".into(),
             ));
@@ -350,7 +350,7 @@ pub async fn stop_game(state: &SharedState) -> Result<StopGameResponse, ServiceE
                 game.found_point_fields.clear();
                 game.found_bonus_fields.clear();
                 game.updated_at = SystemTime::now();
-                game.players
+                game.teams
                     .iter()
                     .cloned()
                     .map(TeamSummary::from)
@@ -475,24 +475,24 @@ pub async fn adjust_score(
     let phase = state.state_machine_phase().await;
     ensure_running_phase(phase)?;
 
-    let updated_player = {
+    let updated_team = {
         let mut guard = state.current_game().write().await;
         let game = unwrap_current_game_mut(&mut guard)?;
-        let player = game
-            .players
+        let team = game
+            .teams
             .iter_mut()
             .find(|p| p.buzzer_id.as_deref() == Some(request.buzzer_id.as_str()))
-            .ok_or_else(|| ServiceError::NotFound("player not found".into()))?;
-        player.score += request.delta;
-        player.clone()
+            .ok_or_else(|| ServiceError::NotFound("team not found".into()))?;
+        team.score += request.delta;
+        team.clone()
     };
 
     state.persist_current_game().await?;
-    sse_events::broadcast_score_adjustment(state, updated_player.clone());
+    sse_events::broadcast_score_adjustment(state, updated_team.clone());
 
     Ok(ScoreUpdateResponse {
-        buzzer_id: updated_player.buzzer_id,
-        score: updated_player.score,
+        buzzer_id: updated_team.buzzer_id,
+        score: updated_team.score,
     })
 }
 
@@ -522,14 +522,14 @@ pub async fn create_team(
         assert_unique_buzzer(game, None, buzzer)?;
     }
 
-    let team = Player {
+    let team = Team {
         id: Uuid::new_v4(),
         buzzer_id,
         name: request.name,
         score: request.score.unwrap_or(0),
     };
 
-    game.players.push(team.clone());
+    game.teams.push(team.clone());
     drop(guard);
 
     state.persist_current_game().await?;
@@ -575,9 +575,9 @@ pub async fn update_team(
 
     let roster = {
         let team = game
-            .players
+            .teams
             .iter_mut()
-            .find(|player| player.id == team_id)
+            .find(|team| team.id == team_id)
             .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
 
         team.name = name;
@@ -588,13 +588,13 @@ pub async fn update_team(
             team.score = new_score;
         }
 
-        game.players.clone()
+        game.teams.clone()
     };
 
     let summary: TeamSummary = roster
         .into_iter()
-        .find(|player| player.id == team_id)
-        .map(|player| player.into())
+        .find(|team| team.id == team_id)
+        .map(|team| team.into())
         .expect("team must exist");
     drop(guard);
 
@@ -613,14 +613,14 @@ pub async fn delete_team(state: &SharedState, team_id: Uuid) -> Result<(), Servi
         let game = unwrap_current_game_mut(&mut guard)?;
 
         let index = game
-            .players
+            .teams
             .iter()
-            .position(|player| player.id == team_id)
+            .position(|team| team.id == team_id)
             .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
 
-        game.players.remove(index);
+        game.teams.remove(index);
 
-        game.players.clone()
+        game.teams.clone()
     };
 
     let pairing_progress = match prep_status {
@@ -666,13 +666,13 @@ pub async fn start_pairing(
             .as_ref()
             .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
 
-        if !game.players.iter().any(|player| player.id == first_team_id) {
+        if !game.teams.iter().any(|team| team.id == first_team_id) {
             return Err(ServiceError::NotFound(format!(
                 "team `{first_team_id}` not found"
             )));
         }
 
-        game.players.clone()
+        game.teams.clone()
     };
 
     let session = PairingSession {
@@ -712,8 +712,8 @@ pub async fn abort_pairing(state: &SharedState) -> Result<Vec<TeamSummary>, Serv
                 .ok_or_else(|| ServiceError::InvalidState("no pairing session is active".into()))?;
             let mut guard = state.current_game().write().await;
             let game = unwrap_current_game_mut(&mut guard)?;
-            game.players = session.snapshot;
-            let roster = game.players.clone();
+            game.teams = session.snapshot;
+            let roster = game.teams.clone();
             drop(guard);
             Ok(roster)
         })
