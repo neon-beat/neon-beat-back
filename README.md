@@ -408,14 +408,14 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Validate the CouchDB connection
 - [x] Add DELETE /admin/games/:id route
 - [x] Replace boolean value of POST /admin/game/answer route by a tri-state value (Correct, Incomplete, Wrong)
-- [ ] Add shuffle query param to /admin/start and shuffle the songs (if requester) at start, not game creation
+- [x] Add shuffle query param to /admin/start and shuffle the songs (if requester) at start, not game creation
+- [x] Keep playlist song order (from given JSON) if no shuffle
 - [ ] Raise a specific error if a Team's buzzer ID is not connected while launching the game
 - [ ] Implement a TryFrom instead of `impl From<(GameListItemEntity, PlaylistEntity)> for GameListItem` (compare playlist IDs)
 - [ ] Remove unecessary pub(crate) functions
 - [ ] Replace Vec<Teams> by HashMap if it is better
-- [ ] Migrate from DashMap to HashMap if DashMap is useless
+- [x] Migrate from DashMap to HashMap if DashMap is useless
 - [ ] Add axum validation
-- [ ] No need for NEON STORE if built with a single Neon Store
 - [ ] Add more logs
 - [ ] Debounce device buzzes (~250 ms) during pairing to avoid double assigns
 - [ ] Reorganize routes if required

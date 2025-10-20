@@ -192,8 +192,7 @@ fn scoreboard_for_phase(game: &GameSession, phase: &GamePhase) -> Option<Vec<Tea
 fn current_song_snapshot(game: &GameSession) -> Option<SongSnapshot> {
     let index = game.current_song_index?;
     let song_id = *game.playlist_song_order.get(index)?;
-    let song_ref = game.playlist.songs.get(&song_id)?;
-    let song = song_ref.value();
+    let song = game.playlist.songs.get(&song_id)?;
 
     Some(SongSnapshot {
         id: song_id,

@@ -1,5 +1,4 @@
-use dashmap::DashMap;
-use rand::{rng, seq::SliceRandom};
+use indexmap::IndexMap;
 use std::time::SystemTime;
 use uuid::Uuid;
 
@@ -18,7 +17,7 @@ pub struct Playlist {
     /// Human readable playlist name.
     pub name: String,
     /// Set of songs that make up the game (key is the ID of the song).
-    pub songs: DashMap<u32, Song>,
+    pub songs: IndexMap<u32, Song>,
 }
 
 /// Metadata for a song of a playlist.
@@ -90,8 +89,7 @@ impl GameSession {
     pub fn new(name: String, teams: Vec<Team>, playlist: Playlist) -> Self {
         let timestamp = SystemTime::now();
 
-        let playlist_song_order: Vec<u32> =
-            playlist.songs.iter().map(|entry| *entry.key()).collect();
+        let playlist_song_order: Vec<u32> = playlist.songs.keys().cloned().collect();
 
         Self {
             id: Uuid::new_v4(),
@@ -109,17 +107,19 @@ impl GameSession {
 
     /// Return the song at the requested playlist index together with its identifier.
     pub fn get_song(&self, index: usize) -> Option<(u32, Song)> {
-        self.playlist_song_order
-            .get(index)
-            .and_then(|song_id| self.playlist.songs.get(song_id))
-            .map(|entry| (*entry.key(), entry.value().clone()))
+        self.playlist_song_order.get(index).and_then(|song_id| {
+            self.playlist
+                .songs
+                .get(song_id)
+                .map(|song| (*song_id, song.clone()))
+        })
     }
 }
 
 impl Playlist {
     /// Build a new in-memory playlist with the provided metadata, allocating a
     /// fresh unique identifier for runtime usage.
-    pub fn new(name: String, songs: DashMap<u32, Song>) -> Self {
+    pub fn new(name: String, songs: IndexMap<u32, Song>) -> Self {
         Self {
             id: Uuid::new_v4(),
             name,
@@ -180,7 +180,8 @@ impl From<PlaylistEntity> for Playlist {
             songs: value
                 .songs
                 .into_iter()
-                .map(|(id, se)| (id, se.into()))
+                .enumerate()
+                .map(|(id, se)| (id as u32, se.into()))
                 .collect(),
         }
     }
@@ -191,11 +192,7 @@ impl From<Playlist> for PlaylistEntity {
         Self {
             id: value.id,
             name: value.name,
-            songs: value
-                .songs
-                .into_iter()
-                .map(|(id, se)| (id, se.into()))
-                .collect(),
+            songs: value.songs.into_values().map(Into::into).collect(),
         }
     }
 }

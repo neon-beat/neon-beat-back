@@ -465,13 +465,13 @@ pub async fn mark_field_found(
 
         match request.kind {
             FieldKind::Point => {
-                ensure_field_exists(&song.value().point_fields, &request.field_key)?;
+                ensure_field_exists(&song.point_fields, &request.field_key)?;
                 if !game.found_point_fields.contains(&request.field_key) {
                     game.found_point_fields.push(request.field_key.clone());
                 }
             }
             FieldKind::Bonus => {
-                ensure_field_exists(&song.value().bonus_fields, &request.field_key)?;
+                ensure_field_exists(&song.bonus_fields, &request.field_key)?;
                 if !game.found_bonus_fields.contains(&request.field_key) {
                     game.found_bonus_fields.push(request.field_key.clone());
                 }

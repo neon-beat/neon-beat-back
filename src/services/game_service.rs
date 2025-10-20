@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use dashmap::DashMap;
+use indexmap::IndexMap;
 use uuid::Uuid;
 
 use crate::{
@@ -22,6 +22,7 @@ pub async fn create_playlist(
     request: PlaylistInput,
 ) -> Result<(PlaylistSummary, Playlist), ServiceError> {
     let PlaylistInput { name, songs } = request;
+    tracing::warn!("SONGS: {:?}", songs);
 
     if songs.is_empty() {
         return Err(ServiceError::InvalidInput(
@@ -30,13 +31,16 @@ pub async fn create_playlist(
     }
 
     let playlist = build_playlist(songs, name)?;
+    tracing::warn!("PLAYLIST: {:?}", playlist);
 
     // Preserve deterministic ordering based on the assigned song identifiers.
     let song_count = playlist.songs.len() as u32;
     let order: Vec<u32> = (0..song_count).collect();
     let summary: PlaylistSummary = (playlist.clone(), order).into();
+    tracing::warn!("SUMMARY: {:?}", playlist);
 
     let entity: PlaylistEntity = playlist.clone().into();
+    tracing::warn!("ENTITY: {:?}", playlist);
     let store = state.game_store().await.ok_or(ServiceError::Degraded)?;
     store.save_playlist(entity).await?;
 
@@ -240,7 +244,7 @@ fn build_playlist(songs: Vec<SongInput>, name: String) -> Result<Playlist, Servi
                 },
             ))
         })
-        .collect::<Result<DashMap<u32, Song>, ServiceError>>()?;
+        .collect::<Result<IndexMap<u32, Song>, ServiceError>>()?;
 
     Ok(Playlist::new(name, songs))
 }
@@ -263,18 +267,18 @@ fn validate_persisted_game(
         )));
     }
 
-    let expected = playlist.songs.len();
+    let playlist_songs_nb = playlist.songs.len();
     let song_order = &game.playlist_song_order;
-    if song_order.len() != expected {
+    if song_order.len() != playlist_songs_nb {
         return Err(ServiceError::InvalidState(format!(
             "game `{}` song orger is inconsistent (expected {} entries, got {})",
             game.id,
-            expected,
+            playlist_songs_nb,
             song_order.len()
         )));
     }
 
-    let song_ids = playlist.songs.keys().collect::<HashSet<_>>();
+    let song_ids = (0..playlist_songs_nb as u32).collect::<HashSet<_>>();
     for song_id in song_order {
         if !song_ids.contains(song_id) {
             return Err(ServiceError::InvalidState(format!(

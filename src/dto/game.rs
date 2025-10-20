@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use dashmap::DashMap;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use utoipa::ToSchema;
@@ -175,13 +175,10 @@ impl From<GameSession> for GameSummary {
 }
 
 fn ordered_song_summaries(
-    playlist_songs: DashMap<u32, Song>,
+    playlist_songs: IndexMap<u32, Song>,
     order: Vec<u32>,
 ) -> Result<Vec<SongSummary>, PlaylistOrderError> {
-    let playlist_ids = playlist_songs
-        .iter()
-        .map(|entry| *entry.key())
-        .collect::<HashSet<_>>();
+    let playlist_ids = playlist_songs.keys().cloned().collect::<HashSet<_>>();
     let order_ids = order.iter().copied().collect::<HashSet<_>>();
 
     if playlist_ids != order_ids {
@@ -211,7 +208,7 @@ fn ordered_song_summaries(
                 });
             };
 
-            Ok((song_id, song_ref.value().clone()).into())
+            Ok((song_id, song_ref.clone()).into())
         })
         .collect::<Result<Vec<SongSummary>, _>>()
 }
