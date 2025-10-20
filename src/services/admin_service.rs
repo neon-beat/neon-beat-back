@@ -4,7 +4,7 @@
 
 use rand::{rng, seq::SliceRandom};
 use std::time::SystemTime;
-use tracing::debug;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -248,6 +248,17 @@ pub async fn start_game(
             return Err(ServiceError::InvalidState(
                 "cannot start game while unpaired teams remain".into(),
             ));
+        }
+
+        if !state.buzzers().iter().all(|r| {
+            game.teams.iter().any(|t| {
+                t.buzzer_id
+                    .as_ref()
+                    .map(|id| id == r.key())
+                    .unwrap_or(false)
+            })
+        }) {
+            warn!("Some buzzers are not paired to any team while starting the game");
         }
     }
 
