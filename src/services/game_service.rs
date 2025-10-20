@@ -296,7 +296,7 @@ fn is_valid_buzzer_id(value: &str) -> bool {
 }
 
 /// Normalise and validate a buzzer identifier (lowercase hex, no whitespace).
-pub(crate) fn sanitize_buzzer_id(raw: &str) -> Result<String, ServiceError> {
+pub fn sanitize_buzzer_id(raw: &str) -> Result<String, ServiceError> {
     let mut buzzer_id = raw.to_lowercase();
     buzzer_id.retain(|c| !c.is_whitespace());
 

@@ -411,8 +411,8 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Add shuffle query param to /admin/start and shuffle the songs (if requester) at start, not game creation
 - [x] Keep playlist song order (from given JSON) if no shuffle
 - [x] Log a warning if a connected buzzer is not paired while launching the game
-- [ ] Implement a TryFrom instead of `impl From<(GameListItemEntity, PlaylistEntity)> for GameListItem` (compare playlist IDs)
-- [ ] Remove unecessary pub(crate) functions
+- [x] Implement a TryFrom instead of `impl From<(GameListItemEntity, PlaylistEntity)> for GameListItem` (compare playlist IDs)
+- [x] Remove unecessary pub(crate) functions
 - [ ] Replace Vec<Teams> by HashMap if it is better
 - [x] Migrate from DashMap to HashMap if DashMap is useless
 - [ ] Add axum validation
