@@ -105,7 +105,7 @@ pub async fn list_games(state: &SharedState) -> Result<Vec<GameListItem>, Servic
             .ok_or_else(|| {
                 ServiceError::NotFound(format!("playlist {} not found", game.playlist_id))
             })?;
-        games_list.push((game, playlist).into());
+        games_list.push((game, playlist).try_into()?);
     }
 
     Ok(games_list)
