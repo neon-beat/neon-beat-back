@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use serde::Serialize;
 use tracing::warn;
 use uuid::Uuid;
@@ -54,8 +55,8 @@ pub fn broadcast_answer_validation(state: &SharedState, valid: AnswerValidation)
 }
 
 /// Broadcast a score adjustment for a specific team.
-pub fn broadcast_score_adjustment(state: &SharedState, team: Team) {
-    let payload = TeamSummary::from(team);
+pub fn broadcast_score_adjustment(state: &SharedState, team_id: Uuid, team: Team) {
+    let payload = TeamSummary::from((team_id, team));
     send_public_event(state, EVENT_SCORE_ADJUSTMENT, &payload);
 }
 
@@ -102,9 +103,9 @@ pub fn broadcast_pairing_assigned(state: &SharedState, team_id: Uuid, buzzer_id:
 }
 
 /// Broadcast that pairing snapshot was restored.
-pub fn broadcast_pairing_restored(state: &SharedState, snapshot: &[Team]) {
+pub fn broadcast_pairing_restored(state: &SharedState, snapshot: IndexMap<Uuid, Team>) {
     let payload = PairingRestoredEvent {
-        snapshot: snapshot.iter().cloned().map(TeamSummary::from).collect(),
+        snapshot: snapshot.into_iter().map(TeamSummary::from).collect(),
     };
     send_public_event(state, EVENT_PAIRING_RESTORED, &payload);
 }
@@ -124,8 +125,8 @@ pub async fn broadcast_phase_changed(state: &SharedState, phase: &GamePhase) {
     }
 }
 
-fn teams_to_summaries(teams: &[Team]) -> Vec<TeamSummary> {
-    teams.iter().cloned().map(TeamSummary::from).collect()
+fn teams_to_summaries(teams: IndexMap<Uuid, Team>) -> Vec<TeamSummary> {
+    teams.into_iter().map(Into::into).collect()
 }
 
 fn send_public_event(state: &SharedState, event: &str, payload: &impl Serialize) {
@@ -184,7 +185,7 @@ fn song_snapshot_for_phase(game: &GameSession, phase: &GamePhase) -> Option<Song
 
 fn scoreboard_for_phase(game: &GameSession, phase: &GamePhase) -> Option<Vec<TeamSummary>> {
     match phase {
-        GamePhase::ShowScores => Some(teams_to_summaries(&game.teams)),
+        GamePhase::ShowScores => Some(teams_to_summaries(game.teams.clone())),
         _ => None,
     }
 }
@@ -192,8 +193,7 @@ fn scoreboard_for_phase(game: &GameSession, phase: &GamePhase) -> Option<Vec<Tea
 fn current_song_snapshot(game: &GameSession) -> Option<SongSnapshot> {
     let index = game.current_song_index?;
     let song_id = *game.playlist_song_order.get(index)?;
-    let song_ref = game.playlist.songs.get(&song_id)?;
-    let song = song_ref.value();
+    let song = game.playlist.songs.get(&song_id)?;
 
     Some(SongSnapshot {
         id: song_id,

@@ -1,6 +1,7 @@
 //! DTO definitions used by the admin REST API and documentation layer.
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -149,18 +150,42 @@ pub struct StopGameResponse {
     pub teams: Vec<crate::dto::sse::TeamSummary>,
 }
 
-impl From<(GameListItemEntity, PlaylistEntity)> for GameListItem {
-    fn from((game_list_item, playlist): (GameListItemEntity, PlaylistEntity)) -> Self {
-        Self {
-            id: game_list_item.id,
-            name: game_list_item.name,
-            created_at: format_system_time(game_list_item.created_at),
-            updated_at: format_system_time(game_list_item.updated_at),
-            teams: game_list_item.teams.into_iter().map(Into::into).collect(),
-            playlist: PlaylistListItem {
-                id: playlist.id,
-                name: playlist.name,
-            },
+/// Errors that can occur when converting storage entities into API DTOs.
+#[derive(Debug, Error)]
+pub enum ConversionError {
+    #[error("playlist id mismatch: expected {expected}, found {found}")]
+    MismatchedPlaylistId { expected: Uuid, found: Uuid },
+}
+
+impl From<ConversionError> for crate::error::ServiceError {
+    fn from(err: ConversionError) -> crate::error::ServiceError {
+        crate::error::ServiceError::InvalidState(err.to_string())
+    }
+}
+
+impl TryFrom<(GameListItemEntity, PlaylistEntity)> for GameListItem {
+    type Error = ConversionError;
+
+    fn try_from(
+        (game_list_item, playlist): (GameListItemEntity, PlaylistEntity),
+    ) -> Result<Self, Self::Error> {
+        if playlist.id != game_list_item.playlist_id {
+            Err(ConversionError::MismatchedPlaylistId {
+                expected: game_list_item.playlist_id,
+                found: playlist.id,
+            })
+        } else {
+            Ok(Self {
+                id: game_list_item.id,
+                name: game_list_item.name,
+                created_at: format_system_time(game_list_item.created_at),
+                updated_at: format_system_time(game_list_item.updated_at),
+                teams: game_list_item.teams.into_iter().map(Into::into).collect(),
+                playlist: PlaylistListItem {
+                    id: playlist.id,
+                    name: playlist.name,
+                },
+            })
         }
     }
 }

@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, time::SystemTime};
+use std::time::SystemTime;
 use uuid::Uuid;
 
 /// Playlist definition containing a list of songs.
@@ -10,7 +10,7 @@ pub struct PlaylistEntity {
     /// Human readable playlist name.
     pub name: String,
     /// Set of songs that make up the game (key is the ID of the song).
-    pub songs: HashMap<u32, SongEntity>,
+    pub songs: Vec<SongEntity>,
 }
 
 /// Song entry inside a playlist.

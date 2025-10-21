@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use indexmap::IndexMap;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -39,7 +40,7 @@ pub enum PrepStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PairingSession {
     pub pairing_team_id: Uuid,
-    pub snapshot: Vec<Team>,
+    pub snapshot: IndexMap<Uuid, Team>,
 }
 
 /// Represents why the game entered a paused state.
@@ -414,7 +415,7 @@ mod tests {
         let mut sm = GameStateMachine::new();
         let pairing_session = PairingSession {
             pairing_team_id: Uuid::new_v4(),
-            snapshot: Vec::new(),
+            snapshot: IndexMap::new(),
         };
 
         assert_eq!(

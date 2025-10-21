@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use uuid::Uuid;
 
 use crate::{
@@ -21,20 +22,26 @@ pub enum PairingProgress {
 /// Mutation the state machine pairing session should apply after a roster change.
 #[derive(Debug)]
 pub enum PairingSessionUpdate {
-    Assigned { team_id: Uuid, roster: Vec<Team> },
-    Deleted { team_id: Uuid, roster: Vec<Team> },
+    Assigned {
+        team_id: Uuid,
+        roster: IndexMap<Uuid, Team>,
+    },
+    Deleted {
+        team_id: Uuid,
+        roster: IndexMap<Uuid, Team>,
+    },
 }
 
 /// Return the identifier of the next team without a buzzer assigned, if any.
-fn next_unassigned_team(teams: &[Team]) -> Option<Uuid> {
+fn next_unassigned_team(teams: &IndexMap<Uuid, Team>) -> Option<Uuid> {
     teams
         .iter()
-        .find(|team| team.buzzer_id.is_none())
-        .map(|team| team.id)
+        .find(|(_, team)| team.buzzer_id.is_none())
+        .map(|(id, _)| *id)
 }
 
 /// Advance the pairing workflow, updating the session state and describing the outcome.
-fn advance_pairing(session: &mut PairingSession, teams: &[Team]) -> PairingProgress {
+fn advance_pairing(session: &mut PairingSession, teams: &IndexMap<Uuid, Team>) -> PairingProgress {
     if let Some(next) = next_unassigned_team(teams) {
         session.pairing_team_id = next;
         PairingProgress::Wait(next)
@@ -58,7 +65,7 @@ pub async fn apply_pairing_update(
             let (team_id, roster) = match update {
                 PairingSessionUpdate::Assigned { team_id, roster } => (team_id, roster),
                 PairingSessionUpdate::Deleted { team_id, roster } => {
-                    session.snapshot.retain(|team| team.id != team_id);
+                    session.snapshot.shift_remove(&team_id);
                     (team_id, roster)
                 }
             };

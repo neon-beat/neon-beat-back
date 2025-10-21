@@ -3,14 +3,14 @@ use tokio::sync::{Mutex, broadcast};
 use crate::dto::sse::ServerEvent;
 
 /// SSE-specific sub-state carved out from [`AppState`].
-pub(crate) struct SseState {
+pub struct SseState {
     public: SseHub,
     admin: AdminSseState,
 }
 
 impl SseState {
     /// Build the SSE sub-tree with per-stream channel capacities.
-    pub(crate) fn new(public_capacity: usize, admin_capacity: usize) -> Self {
+    pub fn new(public_capacity: usize, admin_capacity: usize) -> Self {
         Self {
             public: SseHub::new(public_capacity),
             admin: AdminSseState::new(admin_capacity),
@@ -18,18 +18,18 @@ impl SseState {
     }
 
     /// Access the public SSE hub used to fan out broadcast events.
-    pub(crate) fn public(&self) -> &SseHub {
+    pub fn public(&self) -> &SseHub {
         &self.public
     }
 
     /// Access the admin SSE state bundle containing both hub and token.
-    pub(crate) fn admin(&self) -> &AdminSseState {
+    pub fn admin(&self) -> &AdminSseState {
         &self.admin
     }
 }
 
 /// State bundle holding the admin SSE hub and its coordinating token.
-pub(crate) struct AdminSseState {
+pub struct AdminSseState {
     hub: SseHub,
     token: Mutex<Option<String>>,
 }
@@ -44,12 +44,12 @@ impl AdminSseState {
     }
 
     /// Borrow the broadcast hub used for admin-only events.
-    pub(crate) fn hub(&self) -> &SseHub {
+    pub fn hub(&self) -> &SseHub {
         &self.hub
     }
 
     /// Borrow the token mutex that coordinates the single admin connection.
-    pub(crate) fn token(&self) -> &Mutex<Option<String>> {
+    pub fn token(&self) -> &Mutex<Option<String>> {
         &self.token
     }
 }

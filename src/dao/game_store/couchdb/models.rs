@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::SystemTime};
+use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -87,8 +87,7 @@ pub struct CouchPlaylistDocument {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaylistBody {
     pub name: String,
-    #[serde(with = "super::song_map")]
-    pub songs: HashMap<u32, SongEntity>,
+    pub songs: Vec<SongEntity>,
 }
 
 impl CouchPlaylistDocument {
