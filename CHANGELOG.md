@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.5.2] - Keep playlist song order
+
+- Keep playlist song order (from JSON) if no shuffle => Needs to clear the database to use this version !
+- Log a warning if a connected buzzer is not paired while launching the game
+- Implement TryFrom instead of From to convert (GameListItemEntity, PlaylistEntity) into GameListItem
+- Remove unecessary pub(crate) functions
+- Replace Vec<Team> by an IndexMap<Team> in GameSession
+
 ## [v0.5.1] - Add optional shuffle query parameter for POST /admin/game/start
 
 - `POST /admin/game/start` accepts an optional `shuffle` query parameter to reshuffle the playlist when it hasn't started yet or after completion.
