@@ -413,8 +413,9 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Log a warning if a connected buzzer is not paired while launching the game
 - [x] Implement a TryFrom instead of `impl From<(GameListItemEntity, PlaylistEntity)> for GameListItem` (compare playlist IDs)
 - [x] Remove unecessary pub(crate) functions
-- [ ] Replace Vec<Teams> by HashMap if it is better
+- [x] Replace Vec<Team> by IterMap
 - [x] Migrate from DashMap to HashMap if DashMap is useless
+- [ ] Refactor TeamSummary (duplicate struct)
 - [ ] Add axum validation
 - [ ] Add more logs
 - [ ] Debounce device buzzes (~250 ms) during pairing to avoid double assigns

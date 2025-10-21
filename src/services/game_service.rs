@@ -64,7 +64,7 @@ pub async fn create_game(
     }
 
     let teams = if teams.is_empty() {
-        vec![]
+        IndexMap::new()
     } else {
         build_teams(teams)?
     };
@@ -149,7 +149,7 @@ async fn ensure_idle(state: &SharedState) -> Result<(), ServiceError> {
     Ok(())
 }
 
-fn build_teams(teams: Vec<TeamInput>) -> Result<Vec<Team>, ServiceError> {
+fn build_teams(teams: Vec<TeamInput>) -> Result<IndexMap<Uuid, Team>, ServiceError> {
     let mut seen_ids = HashSet::new();
     teams
         .into_iter()
@@ -177,12 +177,14 @@ fn build_teams(teams: Vec<TeamInput>) -> Result<Vec<Team>, ServiceError> {
                 ));
             }
 
-            Ok(Team {
-                id: Uuid::new_v4(),
-                buzzer_id,
-                name: team.name,
-                score: 0,
-            })
+            Ok((
+                Uuid::new_v4(),
+                Team {
+                    buzzer_id,
+                    name: team.name,
+                    score: 0,
+                },
+            ))
         })
         .collect()
 }

@@ -61,7 +61,7 @@ fn assert_unique_buzzer(
     if game
         .teams
         .iter()
-        .any(|team| team.buzzer_id.as_deref() == Some(buzzer_id) && Some(team.id) != exclude)
+        .any(|(id, team)| team.buzzer_id.as_deref() == Some(buzzer_id) && Some(*id) != exclude)
     {
         return Err(ServiceError::InvalidInput(format!(
             "duplicate buzzer id `{buzzer_id}` detected"
@@ -251,7 +251,7 @@ pub async fn start_game(
         }
 
         if !state.buzzers().iter().all(|r| {
-            game.teams.iter().any(|t| {
+            game.teams.iter().any(|(_, t)| {
                 t.buzzer_id
                     .as_ref()
                     .map(|id| id == r.key())
@@ -414,7 +414,11 @@ pub async fn stop_game(state: &SharedState) -> Result<StopGameResponse, ServiceE
                 let game = guard
                     .as_ref()
                     .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
-                game.teams.iter().cloned().map(Into::into).collect()
+                game.teams
+                    .iter()
+                    .map(|(id, team)| (*id, team.clone()))
+                    .map(Into::into)
+                    .collect()
             };
             Ok(StopGameResponse { teams })
         },
@@ -539,20 +543,17 @@ pub async fn adjust_score(
         let game = unwrap_current_game_mut(&mut guard)?;
         let team = game
             .teams
-            .iter_mut()
-            .find(|p| p.id == team_id)
+            .get_mut(&team_id)
             .ok_or_else(|| ServiceError::NotFound("team not found".into()))?;
         team.score += request.delta;
         team.clone()
     };
 
     state.persist_current_game().await?;
-    sse_events::broadcast_score_adjustment(state, updated_team.clone());
+    let score = updated_team.score;
+    sse_events::broadcast_score_adjustment(state, team_id, updated_team);
 
-    Ok(ScoreUpdateResponse {
-        team_id: updated_team.id,
-        score: updated_team.score,
-    })
+    Ok(ScoreUpdateResponse { team_id, score })
 }
 
 /// Create a new team during the prep phase.
@@ -581,18 +582,18 @@ pub async fn create_team(
         assert_unique_buzzer(game, None, buzzer)?;
     }
 
+    let team_id = Uuid::new_v4();
     let team = Team {
-        id: Uuid::new_v4(),
         buzzer_id,
         name: request.name,
         score: request.score.unwrap_or(0),
     };
 
-    game.teams.push(team.clone());
+    game.teams.insert(team_id, team.clone());
     drop(guard);
 
     state.persist_current_game().await?;
-    let summary: TeamSummary = team.into();
+    let summary: TeamSummary = (team_id, team).into();
     sse_events::broadcast_team_created(state, summary.clone());
 
     Ok(summary)
@@ -635,8 +636,7 @@ pub async fn update_team(
     let roster = {
         let team = game
             .teams
-            .iter_mut()
-            .find(|team| team.id == team_id)
+            .get_mut(&team_id)
             .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
 
         team.name = name;
@@ -650,10 +650,9 @@ pub async fn update_team(
         game.teams.clone()
     };
 
-    let summary: TeamSummary = roster
-        .into_iter()
-        .find(|team| team.id == team_id)
-        .map(|team| team.into())
+    let summary = roster
+        .get(&team_id)
+        .map(|team| TeamSummary::from((team_id, team.clone())))
         .expect("team must exist");
     drop(guard);
 
@@ -671,13 +670,11 @@ pub async fn delete_team(state: &SharedState, team_id: Uuid) -> Result<(), Servi
         let mut guard = state.current_game().write().await;
         let game = unwrap_current_game_mut(&mut guard)?;
 
-        let index = game
-            .teams
-            .iter()
-            .position(|team| team.id == team_id)
-            .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
-
-        game.teams.remove(index);
+        if game.teams.shift_remove(&team_id).is_none() {
+            return Err(ServiceError::NotFound(format!(
+                "team `{team_id}` not found"
+            )));
+        }
 
         game.teams.clone()
     };
@@ -725,7 +722,7 @@ pub async fn start_pairing(
             .as_ref()
             .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
 
-        if !game.teams.iter().any(|team| team.id == first_team_id) {
+        if !game.teams.contains_key(&first_team_id) {
             return Err(ServiceError::NotFound(format!(
                 "team `{first_team_id}` not found"
             )));
@@ -779,9 +776,10 @@ pub async fn abort_pairing(state: &SharedState) -> Result<Vec<TeamSummary>, Serv
         .await?;
 
     state.persist_current_game().await?;
-    sse_events::broadcast_pairing_restored(state, roster.as_slice());
+    let teams = roster.clone().into_iter().map(Into::into).collect();
+    sse_events::broadcast_pairing_restored(state, roster);
 
-    Ok(roster.into_iter().map(Into::into).collect())
+    Ok(teams)
 }
 
 /// Validate that the requested field is part of the song definition.

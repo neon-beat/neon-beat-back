@@ -49,8 +49,6 @@ pub struct PointField {
 /// Team info tracked during a game session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Team {
-    /// Stable identifier for this team.
-    pub id: Uuid,
     /// Unique buzzer identifier (12 lowercase hexadecimal characters).
     pub buzzer_id: Option<String>,
     /// Display name chosen for the team.
@@ -70,8 +68,8 @@ pub struct GameSession {
     pub created_at: SystemTime,
     /// Last time the game document was updated.
     pub updated_at: SystemTime,
-    /// Participating teams and their current scores.
-    pub teams: Vec<Team>,
+    /// Participating teams and their current scores keyed by team identifier.
+    pub teams: IndexMap<Uuid, Team>,
     /// Playlist selected for this session.
     pub playlist: Playlist,
     /// Oredered list of songs IDs from the playlist, defining the playlist order.
@@ -86,7 +84,7 @@ pub struct GameSession {
 
 impl GameSession {
     /// Build a new in-memory session with the provided metadata.
-    pub fn new(name: String, teams: Vec<Team>, playlist: Playlist) -> Self {
+    pub fn new(name: String, teams: IndexMap<Uuid, Team>, playlist: Playlist) -> Self {
         let timestamp = SystemTime::now();
 
         let playlist_song_order: Vec<u32> = playlist.songs.keys().cloned().collect();
@@ -200,7 +198,6 @@ impl From<Playlist> for PlaylistEntity {
 impl From<TeamEntity> for Team {
     fn from(value: TeamEntity) -> Self {
         Self {
-            id: value.id,
             buzzer_id: value.buzzer_id,
             name: value.name,
             score: value.score,
@@ -208,13 +205,25 @@ impl From<TeamEntity> for Team {
     }
 }
 
-impl From<Team> for TeamEntity {
-    fn from(value: Team) -> Self {
-        Self {
-            id: value.id,
+impl From<TeamEntity> for (Uuid, Team) {
+    fn from(value: TeamEntity) -> Self {
+        let id = value.id;
+        let team = Team {
             buzzer_id: value.buzzer_id,
             name: value.name,
             score: value.score,
+        };
+        (id, team)
+    }
+}
+
+impl From<(Uuid, Team)> for TeamEntity {
+    fn from((id, team): (Uuid, Team)) -> Self {
+        Self {
+            id,
+            buzzer_id: team.buzzer_id,
+            name: team.name,
+            score: team.score,
         }
     }
 }
@@ -235,7 +244,11 @@ impl From<(GameEntity, PlaylistEntity)> for GameSession {
             name: game.name,
             created_at: game.created_at,
             updated_at: game.updated_at,
-            teams: game.teams.into_iter().map(Into::into).collect(),
+            teams: game
+                .teams
+                .into_iter()
+                .map(Into::into)
+                .collect(),
             playlist: playlist.into(),
             playlist_song_order: game.playlist_song_order,
             current_song_index: game.current_song_index,
@@ -252,7 +265,11 @@ impl From<GameSession> for GameEntity {
             name: value.name,
             created_at: value.created_at,
             updated_at: value.updated_at,
-            teams: value.teams.into_iter().map(Into::into).collect(),
+            teams: value
+                .teams
+                .into_iter()
+                .map(Into::into)
+                .collect(),
             playlist_id: value.playlist.id,
             playlist_song_order: value.playlist_song_order,
             current_song_index: value.current_song_index,

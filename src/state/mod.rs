@@ -17,9 +17,11 @@ use crate::{
 };
 use axum::extract::ws::Message;
 use dashmap::DashMap;
+use indexmap::IndexMap;
 use tokio::sync::{Mutex, RwLock, mpsc, watch};
 use tokio::time::timeout;
 use tracing::warn;
+use uuid::Uuid;
 
 pub use self::sse::SseHub;
 pub use self::state_machine::{AbortError, ApplyError, Plan, PlanError, PlanId, Snapshot};
@@ -158,8 +160,8 @@ impl AppState {
     }
 
     /// Check whether every team in `teams` has an active buzzer connection registered.
-    pub fn all_teams_paired(&self, teams: &[Team]) -> bool {
-        teams.iter().all(|team| {
+    pub fn all_teams_paired(&self, teams: &IndexMap<Uuid, Team>) -> bool {
+        teams.iter().all(|(_, team)| {
             team.buzzer_id
                 .as_ref()
                 .is_some_and(|id| self.buzzers.contains_key(id))

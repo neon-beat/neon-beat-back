@@ -140,10 +140,10 @@ pub struct TeamUpdatedEvent {
     pub team: TeamSummary,
 }
 
-impl From<crate::state::game::Team> for TeamSummary {
-    fn from(team: crate::state::game::Team) -> Self {
+impl From<(Uuid, crate::state::game::Team)> for TeamSummary {
+    fn from((id, team): (Uuid, crate::state::game::Team)) -> Self {
         Self {
-            id: team.id,
+            id,
             buzzer_id: team.buzzer_id,
             name: team.name,
             score: team.score,

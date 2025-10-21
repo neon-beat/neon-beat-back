@@ -208,23 +208,22 @@ async fn handle_prep_ready_buzz(state: &SharedState, buzzer_id: &str) -> Result<
         .as_mut()
         .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
 
-    if let Some(team) = game
+    if let Some((&team_id, _)) = game
         .teams
         .iter()
-        .find(|team| team.buzzer_id.as_deref() == Some(buzzer_id))
-        .cloned()
+        .find(|(_, team)| team.buzzer_id.as_deref() == Some(buzzer_id))
     {
-        sse_events::broadcast_test_buzz(state, team.id);
+        sse_events::broadcast_test_buzz(state, team_id);
     } else if state.all_teams_paired(&game.teams) {
+        let team_id = Uuid::new_v4();
         let new_team = Team {
-            id: Uuid::new_v4(),
             buzzer_id: Some(buzzer_id.to_string()),
             name: format!("Team {}", game.teams.len() + 1),
             score: 0,
         };
 
-        let summary = TeamSummary::from(new_team.clone());
-        game.teams.push(new_team);
+        let summary = TeamSummary::from((team_id, new_team.clone()));
+        game.teams.insert(team_id, new_team);
 
         state.persist_current_game().await?;
         sse_events::broadcast_team_created(state, summary.clone());
@@ -248,15 +247,16 @@ async fn handle_prep_pairing_buzz(
         .as_mut()
         .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
 
-    let team = game
-        .teams
-        .iter_mut()
-        .find(|team| team.id == team_id)
-        .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
-    team.buzzer_id = Some(buzzer_id.to_string());
+    {
+        let team = game
+            .teams
+            .get_mut(&team_id)
+            .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
+        team.buzzer_id = Some(buzzer_id.to_string());
+    }
 
-    for team in game.teams.iter_mut() {
-        if team.id != team_id && team.buzzer_id.as_deref() == Some(buzzer_id) {
+    for (id, team) in game.teams.iter_mut() {
+        if *id != team_id && team.buzzer_id.as_deref() == Some(buzzer_id) {
             team.buzzer_id = None;
         }
     }
@@ -292,7 +292,7 @@ async fn handle_playing_buzz(state: &SharedState, buzzer_id: &str) -> Result<(),
         guard.as_ref().is_some_and(|game| {
             game.teams
                 .iter()
-                .any(|team| team.buzzer_id.as_deref() == Some(buzzer_id))
+                .any(|(_, team)| team.buzzer_id.as_deref() == Some(buzzer_id))
         })
     };
 

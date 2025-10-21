@@ -118,10 +118,10 @@ impl From<PointField> for PointFieldSummary {
     }
 }
 
-impl From<Team> for TeamSummary {
-    fn from(team: Team) -> Self {
+impl From<(Uuid, Team)> for TeamSummary {
+    fn from((id, team): (Uuid, Team)) -> Self {
         Self {
-            id: team.id,
+            id,
             buzzer_id: team.buzzer_id,
             name: team.name,
             score: team.score,
