@@ -15,6 +15,8 @@ pub struct MongoGameDocument {
     playlist_id: Uuid,
     playlist_song_order: Vec<u32>,
     current_song_index: Option<usize>,
+    #[serde(default)]
+    current_song_found: bool,
 }
 
 impl From<GameEntity> for MongoGameDocument {
@@ -28,6 +30,7 @@ impl From<GameEntity> for MongoGameDocument {
             playlist_id: value.playlist_id,
             playlist_song_order: value.playlist_song_order,
             current_song_index: value.current_song_index,
+            current_song_found: value.current_song_found,
         }
     }
 }
@@ -43,6 +46,7 @@ impl From<MongoGameDocument> for GameEntity {
             playlist_id: value.playlist_id,
             playlist_song_order: value.playlist_song_order,
             current_song_index: value.current_song_index,
+            current_song_found: value.current_song_found,
         }
     }
 }

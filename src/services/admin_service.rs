@@ -325,6 +325,17 @@ pub async fn reveal(state: &SharedState) -> Result<ActionResponse, ServiceError>
         {
             state.notify_buzzer_turn_finished(&id)
         };
+
+        state
+            .with_current_game_mut(|game| {
+                game.current_song_found = true;
+                game.updated_at = SystemTime::now();
+                Ok(())
+            })
+            .await?;
+
+        state.persist_current_game().await?;
+
         Ok(ActionResponse {
             message: "revealed".into(),
         })
@@ -346,10 +357,16 @@ async fn load_next_song(
     state: &SharedState,
     start: bool,
 ) -> Result<Option<SongSummary>, ServiceError> {
-    let (current_song_index, playlist_length) = state
-        .with_current_game(|game| Ok((game.current_song_index, game.playlist_song_order.len())))
+    let (current_song_index, playlist_length, current_song_found) = state
+        .with_current_game(|game| {
+            Ok((
+                game.current_song_index,
+                game.playlist_song_order.len(),
+                game.current_song_found,
+            ))
+        })
         .await?;
-    let next_song_index = if start {
+    let next_song_index = if start && !current_song_found {
         current_song_index.or(Some(0)) // "New Game +" if playlist was completed in the previous session
     } else {
         let next_song_index = current_song_index
@@ -372,9 +389,12 @@ async fn load_next_song(
     run_transition_with_broadcast(state, event, move || async move {
         let summary = state
             .with_current_game_mut(|game| {
+                if game.current_song_index != next_song_index {
+                    game.found_point_fields.clear();
+                    game.found_bonus_fields.clear();
+                }
                 game.current_song_index = next_song_index;
-                game.found_point_fields.clear();
-                game.found_bonus_fields.clear();
+                game.current_song_found = false;
                 game.updated_at = SystemTime::now();
 
                 if let Some(index) = next_song_index {

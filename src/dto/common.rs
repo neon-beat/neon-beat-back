@@ -78,4 +78,10 @@ pub struct GamePhaseSnapshot {
     /// Present during scores phase to display the final scores.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scoreboard: Option<Vec<TeamSummary>>,
+    /// Present during playing/reveal phases to expose point fields already found.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub found_point_fields: Option<Vec<String>>,
+    /// Present during playing/reveal phases to expose bonus fields already found.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub found_bonus_fields: Option<Vec<String>>,
 }

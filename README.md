@@ -463,7 +463,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Migrate from DashMap to HashMap if DashMap is useless
 - [x] Fix bug: a buzz of an unpaired buzzer during PrepReady makes the game broken
 - [x] Send the team who buzzed in the GET phase route and the SSE event
-- [ ] Switch to next song during reveal
+- [x] When entering in the Reveal phase, save the information (in order to know it if we restart the session)
 - [ ] Define color for teams (HSV) -> split the spectrum in 20 hues
 - [ ] Send pattern to WS
 - [ ] On a buzzer reconnexion, send back its pattern

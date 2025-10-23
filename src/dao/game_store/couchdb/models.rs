@@ -41,6 +41,8 @@ pub struct GameBody {
     pub playlist_id: Uuid,
     pub playlist_song_order: Vec<u32>,
     pub current_song_index: Option<usize>,
+    #[serde(default)]
+    pub current_song_found: bool,
 }
 
 impl CouchGameDocument {
@@ -56,6 +58,7 @@ impl CouchGameDocument {
                 playlist_id: value.playlist_id,
                 playlist_song_order: value.playlist_song_order,
                 current_song_index: value.current_song_index,
+                current_song_found: value.current_song_found,
             },
         }
     }
@@ -70,6 +73,7 @@ impl CouchGameDocument {
             playlist_id: self.game.playlist_id,
             playlist_song_order: self.game.playlist_song_order,
             current_song_index: self.game.current_song_index,
+            current_song_found: self.game.current_song_found,
         }
     }
 }

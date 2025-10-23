@@ -246,28 +246,65 @@ impl AppState {
             _ => None,
         };
 
-        let include_song = matches!(
-            phase,
-            GamePhase::GameRunning(GameRunningPhase::Playing)
-                | GamePhase::GameRunning(GameRunningPhase::Reveal)
-        );
-        let include_scoreboard = matches!(phase, GamePhase::ShowScores);
+        let mut song = None;
+        let mut scoreboard = None;
+        let mut found_point_fields = None;
+        let mut found_bonus_fields = None;
 
-        let (song, scoreboard) = self
-            .read_current_game(|maybe| {
-                let mut song = None;
-                let mut scoreboard = None;
-                if let Some(game) = maybe {
-                    if include_song {
-                        song = current_song_snapshot(game);
-                    }
-                    if include_scoreboard {
-                        scoreboard = Some(teams_to_summaries(&game.teams));
-                    }
+        match phase {
+            _ => {
+                let need_song = matches!(
+                    phase,
+                    GamePhase::GameRunning(GameRunningPhase::Playing)
+                        | GamePhase::GameRunning(GameRunningPhase::Reveal)
+                );
+                let need_found_fields = need_song;
+                let need_scoreboard = matches!(phase, GamePhase::ShowScores);
+
+                if need_song || need_found_fields || need_scoreboard {
+                    let (
+                        session_song,
+                        session_scoreboard,
+                        session_point_fields,
+                        session_bonus_fields,
+                    ) = self
+                        .read_current_game(|maybe| {
+                            if let Some(game) = maybe {
+                                (
+                                    if need_song {
+                                        current_song_snapshot(game)
+                                    } else {
+                                        None
+                                    },
+                                    if need_scoreboard {
+                                        Some(teams_to_summaries(&game.teams))
+                                    } else {
+                                        None
+                                    },
+                                    if need_found_fields {
+                                        Some(game.found_point_fields.clone())
+                                    } else {
+                                        None
+                                    },
+                                    if need_found_fields {
+                                        Some(game.found_bonus_fields.clone())
+                                    } else {
+                                        None
+                                    },
+                                )
+                            } else {
+                                (None, None, None, None)
+                            }
+                        })
+                        .await;
+
+                    song = session_song;
+                    scoreboard = session_scoreboard;
+                    found_point_fields = session_point_fields;
+                    found_bonus_fields = session_bonus_fields;
                 }
-                (song, scoreboard)
-            })
-            .await;
+            }
+        }
 
         GamePhaseSnapshot {
             phase: phase_visible,
@@ -277,6 +314,8 @@ impl AppState {
             paused_buzzer,
             song,
             scoreboard,
+            found_point_fields,
+            found_bonus_fields,
         }
     }
 

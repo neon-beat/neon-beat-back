@@ -76,6 +76,8 @@ pub struct GameSession {
     pub playlist_song_order: Vec<u32>,
     /// Index of the current song to be found.
     pub current_song_index: Option<usize>,
+    /// Whether the current song has already been revealed.
+    pub current_song_found: bool,
     /// Field names (key) already found for the current song.
     pub found_point_fields: Vec<String>,
     /// Bonus field names (key) found for the current song.
@@ -98,6 +100,7 @@ impl GameSession {
             playlist,
             playlist_song_order,
             current_song_index: Some(0),
+            current_song_found: false,
             found_point_fields: Vec::new(),
             found_bonus_fields: Vec::new(),
         }
@@ -248,6 +251,7 @@ impl From<(GameEntity, PlaylistEntity)> for GameSession {
             playlist: playlist.into(),
             playlist_song_order: game.playlist_song_order,
             current_song_index: game.current_song_index,
+            current_song_found: game.current_song_found,
             found_point_fields: Vec::new(),
             found_bonus_fields: Vec::new(),
         }
@@ -265,6 +269,7 @@ impl From<GameSession> for GameEntity {
             playlist_id: value.playlist.id,
             playlist_song_order: value.playlist_song_order,
             current_song_index: value.current_song_index,
+            current_song_found: value.current_song_found,
         }
     }
 }
