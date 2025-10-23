@@ -2,8 +2,8 @@
 
 use crate::{
     dto::{
+        game::TeamSummary,
         public::{CurrentSongResponse, GamePhaseResponse, PairingStatusResponse, TeamsResponse},
-        sse::TeamSummary,
     },
     error::ServiceError,
     state::{
@@ -51,14 +51,8 @@ pub async fn get_current_song(state: &SharedState) -> Result<CurrentSongResponse
 /// Return the current game phase (e.g. idle, playing, reveal) and degraded mode.
 pub async fn get_game_phase(state: &SharedState) -> Result<GamePhaseResponse, ServiceError> {
     let phase = state.state_machine_phase().await;
-    let game_id = state.read_current_game(|game| game.map(|g| g.id)).await;
-    let degraded = state.is_degraded().await;
-
-    Ok(GamePhaseResponse {
-        phase: (&phase).into(),
-        game_id,
-        degraded,
-    })
+    let snapshot = state.game_phase_snapshot(&phase).await;
+    Ok(GamePhaseResponse(snapshot))
 }
 
 /// Return the current pairing workflow status for public consumers.

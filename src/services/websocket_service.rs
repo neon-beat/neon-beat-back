@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     dto::{
-        sse::TeamSummary,
+        game::TeamSummary,
         ws::{BuzzFeedback, BuzzerAck, BuzzerInboundMessage},
     },
     error::ServiceError,

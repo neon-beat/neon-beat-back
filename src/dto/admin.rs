@@ -9,7 +9,7 @@ use crate::{
     dao::models::{GameListItemEntity, PlaylistEntity},
     dto::{
         format_system_time,
-        game::{SongSummary, TeamBriefSummary, TeamInput},
+        game::{SongSummary, TeamBriefSummary, TeamInput, TeamSummary},
     },
 };
 
@@ -147,7 +147,7 @@ pub struct NextSongResponse {
 /// Response returned when a game is stopped, gathering final team scores.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct StopGameResponse {
-    pub teams: Vec<crate::dto::sse::TeamSummary>,
+    pub teams: Vec<TeamSummary>,
 }
 
 /// Errors that can occur when converting storage entities into API DTOs.

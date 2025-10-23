@@ -16,9 +16,9 @@ use crate::{
             StartPairingRequest, StopGameResponse, UpdateTeamRequest,
         },
         game::{
-            CreateGameWithPlaylistRequest, GameSummary, PlaylistInput, PlaylistSummary, SongSummary,
+            CreateGameWithPlaylistRequest, GameSummary, PlaylistInput, PlaylistSummary,
+            SongSummary, TeamSummary,
         },
-        sse::TeamSummary,
     },
     error::ServiceError,
     services::{

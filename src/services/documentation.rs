@@ -38,6 +38,9 @@ use utoipa::OpenApi;
     ),
     components(
         schemas(
+            crate::dto::common::GamePhaseSnapshot,
+            crate::dto::common::PointFieldSnapshot,
+            crate::dto::common::SongSnapshot,
             crate::dto::health::HealthResponse,
             crate::dto::ws::BuzzerInboundMessage,
             crate::dto::ws::BuzzerAck,
@@ -52,12 +55,9 @@ use utoipa::OpenApi;
             crate::dto::game::PointFieldSummary,
             crate::dto::sse::SystemStatus,
             crate::dto::sse::Handshake,
-            crate::dto::sse::TeamSummary,
             crate::dto::sse::FieldsFoundEvent,
             crate::dto::sse::AnswerValidationEvent,
             crate::dto::sse::PhaseChangedEvent,
-            crate::dto::sse::SongSnapshot,
-            crate::dto::sse::PointFieldSnapshot,
             crate::dto::sse::PairingWaitingEvent,
             crate::dto::sse::PairingAssignedEvent,
             crate::dto::sse::PairingRestoredEvent,

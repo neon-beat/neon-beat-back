@@ -2,6 +2,7 @@ use std::time::SystemTime;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 pub mod admin;
+pub mod common;
 pub mod game;
 pub mod health;
 pub mod phase;

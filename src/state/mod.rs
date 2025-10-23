@@ -8,11 +8,16 @@ use std::{sync::Arc, time::Duration};
 use crate::services::websocket_service::send_message_to_websocket;
 use crate::{
     dao::game_store::GameStore,
-    dto::ws::BuzzFeedback,
+    dto::{
+        common::{GamePhaseSnapshot, SongSnapshot},
+        game::TeamSummary,
+        phase::VisibleGamePhase,
+        ws::BuzzFeedback,
+    },
     error::ServiceError,
     state::{
         game::{GameSession, Team},
-        state_machine::{GamePhase, PairingSession},
+        state_machine::{GamePhase, GameRunningPhase, PairingSession, PauseKind, PrepStatus},
     },
 };
 use axum::extract::ws::Message;
@@ -221,6 +226,60 @@ impl AppState {
         f(&mut guard)
     }
 
+    /// Build a snapshot describing the current gameplay phase and related state.
+    pub async fn game_phase_snapshot(&self, phase: &GamePhase) -> GamePhaseSnapshot {
+        let phase_visible = VisibleGamePhase::from(phase);
+        let game_id = self.read_current_game(|game| game.map(|g| g.id)).await;
+        let degraded = self.is_degraded().await;
+
+        let pairing_team_id = match phase {
+            GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Pairing(session))) => {
+                Some(session.pairing_team_id)
+            }
+            _ => None,
+        };
+
+        let paused_buzzer = match phase {
+            GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { id })) => {
+                Some(id.clone())
+            }
+            _ => None,
+        };
+
+        let include_song = matches!(
+            phase,
+            GamePhase::GameRunning(GameRunningPhase::Playing)
+                | GamePhase::GameRunning(GameRunningPhase::Reveal)
+        );
+        let include_scoreboard = matches!(phase, GamePhase::ShowScores);
+
+        let (song, scoreboard) = self
+            .read_current_game(|maybe| {
+                let mut song = None;
+                let mut scoreboard = None;
+                if let Some(game) = maybe {
+                    if include_song {
+                        song = current_song_snapshot(game);
+                    }
+                    if include_scoreboard {
+                        scoreboard = Some(teams_to_summaries(&game.teams));
+                    }
+                }
+                (song, scoreboard)
+            })
+            .await;
+
+        GamePhaseSnapshot {
+            phase: phase_visible,
+            game_id,
+            degraded,
+            pairing_team_id,
+            paused_buzzer,
+            song,
+            scoreboard,
+        }
+    }
+
     /// Update and broadcast the degraded flag when the value changes.
     pub async fn update_degraded(&self, value: bool) {
         {
@@ -328,4 +387,15 @@ impl AppState {
             "buzzer turn ended",
         );
     }
+}
+
+fn teams_to_summaries(teams: &IndexMap<Uuid, Team>) -> Vec<TeamSummary> {
+    teams.clone().into_iter().map(TeamSummary::from).collect()
+}
+
+fn current_song_snapshot(game: &GameSession) -> Option<SongSnapshot> {
+    let index = game.current_song_index?;
+    let song_id = *game.playlist_song_order.get(index)?;
+    let song = game.playlist.songs.get(&song_id)?;
+    Some(SongSnapshot::from_game_song(song_id, song))
 }

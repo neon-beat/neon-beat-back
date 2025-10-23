@@ -2,7 +2,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::dto::{admin::AnswerValidation, phase::VisibleGamePhase};
+use crate::dto::{admin::AnswerValidation, common::GamePhaseSnapshot, game::TeamSummary};
 
 #[derive(Clone, Debug)]
 /// Dispatched payload carried across SSE channels.
@@ -45,15 +45,6 @@ pub struct SystemStatus {
     pub degraded: bool,
 }
 
-#[derive(Debug, Serialize, ToSchema, Clone)]
-/// Summary of a team broadcast to SSE subscribers.
-pub struct TeamSummary {
-    pub id: Uuid,
-    pub buzzer_id: Option<String>,
-    pub name: String,
-    pub score: i32,
-}
-
 #[derive(Debug, Serialize, ToSchema)]
 /// Broadcast when point or bonus fields have been marked as found.
 pub struct FieldsFoundEvent {
@@ -69,33 +60,9 @@ pub struct AnswerValidationEvent {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+#[serde(transparent)]
 /// Broadcast whenever the gameplay phase changes.
-pub struct PhaseChangedEvent {
-    pub phase: VisibleGamePhase,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub song: Option<SongSnapshot>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scoreboard: Option<Vec<TeamSummary>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub paused_buzzer: Option<String>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct SongSnapshot {
-    pub id: u32,
-    pub starts_at_ms: usize,
-    pub guess_duration_ms: usize,
-    pub url: String,
-    pub point_fields: Vec<PointFieldSnapshot>,
-    pub bonus_fields: Vec<PointFieldSnapshot>,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct PointFieldSnapshot {
-    pub key: String,
-    pub value: String,
-    pub points: u8,
-}
+pub struct PhaseChangedEvent(pub GamePhaseSnapshot);
 
 #[derive(Debug, Serialize, ToSchema)]
 /// Event emitted when the pairing workflow awaits the next team.
@@ -138,25 +105,4 @@ pub struct TeamDeletedEvent {
 /// Event emitted when an existing team was updated (name, buzzer, or score).
 pub struct TeamUpdatedEvent {
     pub team: TeamSummary,
-}
-
-impl From<(Uuid, crate::state::game::Team)> for TeamSummary {
-    fn from((id, team): (Uuid, crate::state::game::Team)) -> Self {
-        Self {
-            id,
-            buzzer_id: team.buzzer_id,
-            name: team.name,
-            score: team.score,
-        }
-    }
-}
-
-impl From<crate::state::game::PointField> for PointFieldSnapshot {
-    fn from(field: crate::state::game::PointField) -> Self {
-        Self {
-            key: field.key,
-            value: field.value,
-            points: field.points,
-        }
-    }
 }

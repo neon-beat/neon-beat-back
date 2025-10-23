@@ -462,7 +462,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Replace Vec<Team> by IterMap
 - [x] Migrate from DashMap to HashMap if DashMap is useless
 - [x] Fix bug: a buzz of an unpaired buzzer during PrepReady makes the game broken
-- [ ] Send the team who buzzed in the GET phase route
+- [x] Send the team who buzzed in the GET phase route and the SSE event
 - [ ] Switch to next song during reveal
 - [ ] Define color for teams (HSV) -> split the spectrum in 20 hues
 - [ ] Send pattern to WS
@@ -471,7 +471,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [ ] Better management for panics & expects
 - [ ] Less info logs (only connected/disconnected)
 - [ ] If there is no game: do not send 404 for GET Teams
-- [ ] During Pause event, do not send song to SSE
+- [x] During Pause event, do not send song to SSE
 - [ ] SSE public GameSession & NextSong: remove field responses
 - [ ] Mark field found: send response to public SSE
 - [ ] New route: POST song hint
