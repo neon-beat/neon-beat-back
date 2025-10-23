@@ -203,31 +203,39 @@ pub async fn handle_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), Ser
 }
 
 async fn handle_prep_ready_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), ServiceError> {
-    let mut guard = state.current_game().write().await;
-    let game = guard
-        .as_mut()
-        .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
+    let maybe_summary = {
+        let mut guard = state.current_game().write().await;
+        let game = guard
+            .as_mut()
+            .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
 
-    if let Some((&team_id, _)) = game
-        .teams
-        .iter()
-        .find(|(_, team)| team.buzzer_id.as_deref() == Some(buzzer_id))
-    {
-        sse_events::broadcast_test_buzz(state, team_id);
-    } else if state.all_teams_paired(&game.teams) {
-        let team_id = Uuid::new_v4();
-        let new_team = Team {
-            buzzer_id: Some(buzzer_id.to_string()),
-            name: format!("Team {}", game.teams.len() + 1),
-            score: 0,
-        };
+        if let Some((&team_id, _)) = game
+            .teams
+            .iter()
+            .find(|(_, team)| team.buzzer_id.as_deref() == Some(buzzer_id))
+        {
+            sse_events::broadcast_test_buzz(state, team_id);
+            None
+        } else if state.all_teams_paired(&game.teams) {
+            let team_id = Uuid::new_v4();
+            let new_team = Team {
+                buzzer_id: Some(buzzer_id.to_string()),
+                name: format!("Team {}", game.teams.len() + 1),
+                score: 0,
+            };
 
-        let summary = TeamSummary::from((team_id, new_team.clone()));
-        game.teams.insert(team_id, new_team);
+            let summary = TeamSummary::from((team_id, new_team.clone()));
+            game.teams.insert(team_id, new_team);
+            Some(summary)
+        } else {
+            None
+        }
+    };
 
+    if let Some(summary) = maybe_summary {
         state.persist_current_game().await?;
         sse_events::broadcast_team_created(state, summary.clone());
-    } // Else, do nothing
+    }
     Ok(())
 }
 

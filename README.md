@@ -461,7 +461,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Remove unecessary pub(crate) functions
 - [x] Replace Vec<Team> by IterMap
 - [x] Migrate from DashMap to HashMap if DashMap is useless
-- [ ] Fix bug: a buzz of an unpaired buzzer during PrepReady makes the game broken
+- [x] Fix bug: a buzz of an unpaired buzzer during PrepReady makes the game broken
 - [ ] Send the team who buzzed in the GET phase route
 - [ ] Switch to next song during reveal
 - [ ] Define color for teams (HSV) -> split the spectrum in 20 hues
