@@ -11,6 +11,18 @@ See [CHANGELOG](CHANGELOG.md) for detailed release notes.
 - **Configurable persistence**: Build with MongoDB or CouchDB support and select the active store per deployment. Keeps playlists, teams, and game progress in sync. Playlists are stored in their own collection so games can reuse curated track lists without re-importing them each time.
 - **Swagger UI**: The full OpenAPI document is generated with utoipa and served through Swagger UI (`/docs`) for quick manual testing.
 
+## Utilities
+
+### `tool-colors-gen`
+
+The repository contains a small helper binary that generates curated color assets (HTML previews and JSON exports) for teams.
+
+- Build/run (feature-gated):  
+  `cargo run --bin tool-colors-gen --no-default-features --features tool-colors-gen`
+- Output location: `${CARGO_TARGET_DIR:-target}/tool-colors-gen/`
+
+The command writes both HTML grids and JSON files in that directory and prints the exact paths once generation completes.
+
 ## Architecture Overview
 
 ### Module layout

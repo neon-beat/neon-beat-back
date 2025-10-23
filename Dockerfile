@@ -27,7 +27,7 @@ COPY Cargo.toml Cargo.toml
 COPY src/ ./src
 # Build application
 RUN TARGET_ARG="${BUILD_TARGET:+--target $BUILD_TARGET}" && \
-    cargo build --release --locked $TARGET_ARG $CARGO_FEATURES
+    cargo build --release --bin neon-beat-back --locked $TARGET_ARG $CARGO_FEATURES
 RUN TARGET_SUBDIR="${BUILD_TARGET:+$BUILD_TARGET/}" && \
     mkdir -p /app/bin && \
     cp "target/${TARGET_SUBDIR}release/neon-beat-back" /app/bin/neon-beat-back
