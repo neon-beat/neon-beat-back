@@ -2,7 +2,10 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::dto::{game::SongSummary, phase::VisibleGamePhase, sse::TeamSummary};
+use crate::dto::{
+    common::GamePhaseSnapshot,
+    game::{SongSummary, TeamSummary},
+};
 
 /// Response payload listing the teams currently loaded in memory.
 #[derive(Debug, Serialize, ToSchema)]
@@ -20,11 +23,8 @@ pub struct CurrentSongResponse {
 
 /// Response exposing the game's global phase as seen by the public.
 #[derive(Debug, Serialize, ToSchema)]
-pub struct GamePhaseResponse {
-    pub phase: VisibleGamePhase,
-    pub game_id: Option<Uuid>,
-    pub degraded: bool,
-}
+#[serde(transparent)]
+pub struct GamePhaseResponse(pub GamePhaseSnapshot);
 
 /// Public response describing the state of the pairing workflow.
 #[derive(Debug, Serialize, ToSchema)]

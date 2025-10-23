@@ -6,17 +6,17 @@ use uuid::Uuid;
 use crate::{
     dto::{
         admin::AnswerValidation,
-        game::GameSummary,
+        game::{GameSummary, TeamSummary},
         sse::{
             AnswerValidationEvent, FieldsFoundEvent, PairingAssignedEvent, PairingRestoredEvent,
-            PairingWaitingEvent, PhaseChangedEvent, PointFieldSnapshot, ServerEvent, SongSnapshot,
-            TeamCreatedEvent, TeamDeletedEvent, TeamSummary, TeamUpdatedEvent, TestBuzzEvent,
+            PairingWaitingEvent, PhaseChangedEvent, ServerEvent, TeamCreatedEvent,
+            TeamDeletedEvent, TeamUpdatedEvent, TestBuzzEvent,
         },
     },
     state::{
         SharedState,
         game::{GameSession, Team},
-        state_machine::{GamePhase, GameRunningPhase, PauseKind},
+        state_machine::GamePhase,
     },
 };
 
@@ -125,10 +125,6 @@ pub async fn broadcast_phase_changed(state: &SharedState, phase: &GamePhase) {
     }
 }
 
-fn teams_to_summaries(teams: IndexMap<Uuid, Team>) -> Vec<TeamSummary> {
-    teams.into_iter().map(Into::into).collect()
-}
-
 fn send_public_event(state: &SharedState, event: &str, payload: &impl Serialize) {
     match ServerEvent::json(Some(event.to_string()), payload) {
         Ok(event) => state.public_sse().broadcast(event),
@@ -147,70 +143,7 @@ async fn build_phase_changed_event(
     state: &SharedState,
     phase: &GamePhase,
 ) -> Option<PhaseChangedEvent> {
-    let kind = phase.into();
-    let paused_buzzer = match phase {
-        GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { id })) => {
-            Some(id.clone())
-        }
-        _ => None,
-    };
-
-    let (song, scoreboard) = {
-        let guard = state.current_game().read().await;
-        match guard.as_ref() {
-            Some(game) => (
-                song_snapshot_for_phase(game, phase),
-                scoreboard_for_phase(game, phase),
-            ),
-            None => (None, None),
-        }
-    };
-
-    Some(PhaseChangedEvent {
-        phase: kind,
-        song,
-        scoreboard,
-        paused_buzzer,
-    })
-}
-
-fn song_snapshot_for_phase(game: &GameSession, phase: &GamePhase) -> Option<SongSnapshot> {
-    match phase {
-        GamePhase::GameRunning(GameRunningPhase::Playing)
-        | GamePhase::GameRunning(GameRunningPhase::Paused(_))
-        | GamePhase::GameRunning(GameRunningPhase::Reveal) => current_song_snapshot(game),
-        _ => None,
-    }
-}
-
-fn scoreboard_for_phase(game: &GameSession, phase: &GamePhase) -> Option<Vec<TeamSummary>> {
-    match phase {
-        GamePhase::ShowScores => Some(teams_to_summaries(game.teams.clone())),
-        _ => None,
-    }
-}
-
-fn current_song_snapshot(game: &GameSession) -> Option<SongSnapshot> {
-    let index = game.current_song_index?;
-    let song_id = *game.playlist_song_order.get(index)?;
-    let song = game.playlist.songs.get(&song_id)?;
-
-    Some(SongSnapshot {
-        id: song_id,
-        starts_at_ms: song.starts_at_ms,
-        guess_duration_ms: song.guess_duration_ms,
-        url: song.url.clone(),
-        point_fields: song
-            .point_fields
-            .iter()
-            .cloned()
-            .map(PointFieldSnapshot::from)
-            .collect(),
-        bonus_fields: song
-            .bonus_fields
-            .iter()
-            .cloned()
-            .map(PointFieldSnapshot::from)
-            .collect(),
-    })
+    // Always emit a snapshot, even if no active game is loaded.
+    let snapshot = state.game_phase_snapshot(phase).await;
+    Some(PhaseChangedEvent(snapshot))
 }

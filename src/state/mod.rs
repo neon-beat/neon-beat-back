@@ -8,11 +8,16 @@ use std::{sync::Arc, time::Duration};
 use crate::services::websocket_service::send_message_to_websocket;
 use crate::{
     dao::game_store::GameStore,
-    dto::ws::BuzzFeedback,
+    dto::{
+        common::{GamePhaseSnapshot, SongSnapshot},
+        game::TeamSummary,
+        phase::VisibleGamePhase,
+        ws::BuzzFeedback,
+    },
     error::ServiceError,
     state::{
         game::{GameSession, Team},
-        state_machine::{GamePhase, PairingSession},
+        state_machine::{GamePhase, GameRunningPhase, PairingSession, PauseKind, PrepStatus},
     },
 };
 use axum::extract::ws::Message;
@@ -173,9 +178,145 @@ impl AppState {
         self.game.read().await.phase()
     }
 
-    /// Currently active game session data.
-    pub fn current_game(&self) -> &RwLock<Option<GameSession>> {
-        &self.current_game
+    /// Mutate the in-memory game session, returning the closure result.
+    ///
+    /// The provided closure must remain synchronous; it is executed while the
+    /// write lock on the current game is held. Returning any data needed for
+    /// subsequent async work allows the lock to be released before awaiting.
+    pub async fn with_current_game_mut<F, R>(&self, f: F) -> Result<R, ServiceError>
+    where
+        F: FnOnce(&mut GameSession) -> Result<R, ServiceError>,
+    {
+        self.with_current_game_slot_mut(|slot| {
+            let game = slot
+                .as_mut()
+                .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
+            f(game)
+        })
+        .await
+    }
+
+    /// Read the optional current game slot.
+    pub async fn read_current_game<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(Option<&GameSession>) -> R,
+    {
+        let guard = self.current_game.read().await;
+        f(guard.as_ref())
+    }
+
+    /// Borrow the active game immutably, returning an error if none is present.
+    pub async fn with_current_game<F, R>(&self, f: F) -> Result<R, ServiceError>
+    where
+        F: FnOnce(&GameSession) -> Result<R, ServiceError>,
+    {
+        self.read_current_game(|maybe| match maybe {
+            Some(game) => f(game),
+            None => Err(ServiceError::InvalidState("no active game".into())),
+        })
+        .await
+    }
+
+    /// Mutate the optional current game slot directly.
+    pub async fn with_current_game_slot_mut<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut Option<GameSession>) -> R,
+    {
+        let mut guard = self.current_game.write().await;
+        f(&mut guard)
+    }
+
+    /// Build a snapshot describing the current gameplay phase and related state.
+    pub async fn game_phase_snapshot(&self, phase: &GamePhase) -> GamePhaseSnapshot {
+        let phase_visible = VisibleGamePhase::from(phase);
+        let game_id = self.read_current_game(|game| game.map(|g| g.id)).await;
+        let degraded = self.is_degraded().await;
+
+        let pairing_team_id = match phase {
+            GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Pairing(session))) => {
+                Some(session.pairing_team_id)
+            }
+            _ => None,
+        };
+
+        let paused_buzzer = match phase {
+            GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { id })) => {
+                Some(id.clone())
+            }
+            _ => None,
+        };
+
+        let mut song = None;
+        let mut scoreboard = None;
+        let mut found_point_fields = None;
+        let mut found_bonus_fields = None;
+
+        match phase {
+            _ => {
+                let need_song = matches!(
+                    phase,
+                    GamePhase::GameRunning(GameRunningPhase::Playing)
+                        | GamePhase::GameRunning(GameRunningPhase::Reveal)
+                );
+                let need_found_fields = need_song;
+                let need_scoreboard = matches!(phase, GamePhase::ShowScores);
+
+                if need_song || need_found_fields || need_scoreboard {
+                    let (
+                        session_song,
+                        session_scoreboard,
+                        session_point_fields,
+                        session_bonus_fields,
+                    ) = self
+                        .read_current_game(|maybe| {
+                            if let Some(game) = maybe {
+                                (
+                                    if need_song {
+                                        current_song_snapshot(game)
+                                    } else {
+                                        None
+                                    },
+                                    if need_scoreboard {
+                                        Some(teams_to_summaries(&game.teams))
+                                    } else {
+                                        None
+                                    },
+                                    if need_found_fields {
+                                        Some(game.found_point_fields.clone())
+                                    } else {
+                                        None
+                                    },
+                                    if need_found_fields {
+                                        Some(game.found_bonus_fields.clone())
+                                    } else {
+                                        None
+                                    },
+                                )
+                            } else {
+                                (None, None, None, None)
+                            }
+                        })
+                        .await;
+
+                    song = session_song;
+                    scoreboard = session_scoreboard;
+                    found_point_fields = session_point_fields;
+                    found_bonus_fields = session_bonus_fields;
+                }
+            }
+        }
+
+        GamePhaseSnapshot {
+            phase: phase_visible,
+            game_id,
+            degraded,
+            pairing_team_id,
+            paused_buzzer,
+            song,
+            scoreboard,
+            found_point_fields,
+            found_bonus_fields,
+        }
     }
 
     /// Update and broadcast the degraded flag when the value changes.
@@ -285,4 +426,15 @@ impl AppState {
             "buzzer turn ended",
         );
     }
+}
+
+fn teams_to_summaries(teams: &IndexMap<Uuid, Team>) -> Vec<TeamSummary> {
+    teams.clone().into_iter().map(TeamSummary::from).collect()
+}
+
+fn current_song_snapshot(game: &GameSession) -> Option<SongSnapshot> {
+    let index = game.current_song_index?;
+    let song_id = *game.playlist_song_order.get(index)?;
+    let song = game.playlist.songs.get(&song_id)?;
+    Some(SongSnapshot::from_game_song(song_id, song))
 }

@@ -83,24 +83,70 @@ stateDiagram-v2
 ### Buzzer state flow
 ```mermaid
 stateDiagram-v2
-    [*] --> Idle
-    Idle --> CONNECTED: connected
-    CONNECTED --> Idle: disconnected
+   [*] --> NotConnected
+   NotConnected --> CONNECTED: connected
+   CONNECTED --> NotConnected: disconnected
 
-    state CONNECTED {
-        [*] --> Pairing
-        Pairing --> Pairing: pairing failed
-        Pairing --> IN_GAME: pairing succeeded
-        IN_GAME --> Pairing: game ended
+   state CONNECTED {
+      [*] --> WaitingForPairing
+      WaitingForPairing --> IN_GAME: pairing succeeded
+      IN_GAME --> WaitingForPairing: game ended
 
-        state IN_GAME {
-            [*] --> Ready
-            Ready --> Ready: buzz rejected
-            Ready --> Buzzed: buzz accepted
-            Buzzed --> Ready: buzz ended valid
-            Buzzed --> Ready: buzz ended invalid
-        }
-    }
+      state IN_GAME {
+         [*] --> Standby
+         Standby --> Playing: start answer window
+         Playing --> Standby: end answer window
+         Playing --> Waiting: another team is answering
+         Waiting --> Playing: other team anwsered
+         Playing --> Answering: buzz accepted
+         Answering --> Playing: team answered
+      }
+   }
+   note left of NotConnected
+      blink: {
+         duration_ms: 0,
+         period_ms: 5000,
+         dc: 0.1,
+         color: {h:0, s:0, v:1}
+      }
+      # white
+   end note
+   note left of WaitingForPairing
+      blink: {
+         duration_ms: 1000,
+         period_ms: 200,
+         dc: 0.5,
+         color: {h:125, s:1, v:1}
+      }
+      # green
+   end note
+   note left of Standby
+      wave: {
+         duration_ms: 0,
+         period_ms: 5000,
+         dc: 0.2,
+         color: team_color
+      }
+   end note
+   note left of Playing
+      wave: {
+         duration_ms: 0,
+         period_ms: 3000,
+         dc: 0.5,
+         color: team_color
+      }
+   end note
+   note left of Answering
+      blink: {
+         duration_ms: 0,
+         period_ms: 500,
+         dc: 0.5,
+         color: team_color
+      }
+   end note
+   note left of Waiting
+      off
+   end note
 ```
 
 ## Core gameplay features
@@ -415,16 +461,31 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Remove unecessary pub(crate) functions
 - [x] Replace Vec<Team> by IterMap
 - [x] Migrate from DashMap to HashMap if DashMap is useless
+- [x] Fix bug: a buzz of an unpaired buzzer during PrepReady makes the game broken
+- [x] Send the team who buzzed in the GET phase route and the SSE event
+- [x] When entering in the Reveal phase, save the information (in order to know it if we restart the session)
+- [ ] Define color for teams (HSV) -> split the spectrum in 20 hues
+- [ ] Send pattern to WS
+- [ ] On a buzzer reconnexion, send back its pattern
+- [ ] If a buzzer enters inhibited mode, send the information to SSE streams (public & admin)
+- [ ] Better management for panics & expects
+- [ ] Less info logs (only connected/disconnected)
+- [ ] If there is no game: do not send 404 for GET Teams
+- [x] During Pause event, do not send song to SSE
+- [ ] SSE public GameSession & NextSong: remove field responses
+- [ ] Mark field found: send response to public SSE
+- [ ] New route: POST song hint
+- [ ] Once a team answered, it can be locked (until another team buzzes or the next song), depending on a game_start boolean parameter
 - [ ] Refactor TeamSummary (duplicate struct)
 - [ ] Add axum validation
 - [ ] Add more logs
+- [ ] Serve the OpenAPI documentation as a Github Page
 - [ ] Debounce device buzzes (~250 ms) during pairing to avoid double assigns
 - [ ] Reorganize routes if required
 - [ ] Better management for errors
 - [ ] Send encountered errors to admin SSE during WS handles
 - [ ] Create game/playlist IDs from store
 - [ ] Allow to create a game in degraded mode (save the session & playlist later)
-- [ ] Better management for panics & expects
 - [ ] When a buzzer has the right to answer, send info to others that they don't have the right to buzz yet. When the buzzer ended its turn, send info to others that they have the right to buzz now.
 - [ ] Update `game_store` value of `AppState ` and send False to `degraded` watcher each time a GameStore function returns a connection error ?
 - [ ] Remove useless features of dependencies if found
@@ -436,6 +497,5 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - Do we want to modify a playlist when it is already imported in the backend ? No, we import again
 - Do we want to add a timeout when a team has buzzed (to resume the game) ? Add an int config property (default: Infinite)
 - Do we want to prevent the previous buzzer to buzz again ? Add a bool config property (default: re-buzz authorized)
-- Do we want to serve the OpenAPI documentation as a Github Page ?
-- Do we want Game and Playlist name unicity ?
-- Do we want to raise an error if a connected buzzer is not paired while launching the game ?
+- Do we want Game and Playlist name unicity ? No
+- Do we want to raise an error if a connected buzzer is not paired while launching the game ? No

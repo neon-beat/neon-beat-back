@@ -64,7 +64,7 @@ pub struct GameSummary {
     pub current_song_index: Option<usize>,
 }
 
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub struct TeamSummary {
     pub id: Uuid,
     pub buzzer_id: Option<String>,

@@ -80,6 +80,9 @@ pub struct GameEntity {
     pub playlist_song_order: Vec<u32>,
     /// Index of the current song to be found.
     pub current_song_index: Option<usize>,
+    /// Whether the current song has already been revealed.
+    #[serde(default)]
+    pub current_song_found: bool,
 }
 
 /// Aggregate game list item entity (subset of GameEntity) persisted by the storage layer.

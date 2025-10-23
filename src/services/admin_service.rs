@@ -16,9 +16,9 @@ use crate::{
             StartPairingRequest, StopGameResponse, UpdateTeamRequest,
         },
         game::{
-            CreateGameWithPlaylistRequest, GameSummary, PlaylistInput, PlaylistSummary, SongSummary,
+            CreateGameWithPlaylistRequest, GameSummary, PlaylistInput, PlaylistSummary,
+            SongSummary, TeamSummary,
         },
-        sse::TeamSummary,
     },
     error::ServiceError,
     services::{
@@ -71,14 +71,6 @@ fn assert_unique_buzzer(
 }
 
 /// Borrow the active game session mutably or produce an invalid-state error.
-fn unwrap_current_game_mut(
-    guard: &mut Option<GameSession>,
-) -> Result<&mut GameSession, ServiceError> {
-    guard
-        .as_mut()
-        .ok_or_else(|| ServiceError::InvalidState("no active game".into()))
-}
-
 /// Return the games persisted in storage for selection in the admin UI.
 fn ensure_running_phase(phase: GamePhase) -> Result<GameRunningPhase, ServiceError> {
     match phase {
@@ -141,10 +133,7 @@ pub async fn list_playlists(state: &SharedState) -> Result<Vec<PlaylistListItem>
 }
 
 pub async fn delete_game(state: &SharedState, id: Uuid) -> Result<(), ServiceError> {
-    let current_game_id = {
-        let guard = state.current_game().read().await;
-        guard.as_ref().map(|game| game.id)
-    };
+    let current_game_id = state.read_current_game(|game| game.map(|g| g.id)).await;
 
     if current_game_id == Some(id) {
         if !matches!(state.state_machine_phase().await, GamePhase::Idle) {
@@ -153,8 +142,11 @@ pub async fn delete_game(state: &SharedState, id: Uuid) -> Result<(), ServiceErr
             ));
         }
 
-        let mut guard = state.current_game().write().await;
-        guard.take();
+        state
+            .with_current_game_slot_mut(|slot| {
+                slot.take();
+            })
+            .await;
     }
 
     let store = state.game_store().await.ok_or(ServiceError::Degraded)?;
@@ -233,51 +225,54 @@ pub async fn start_game(
     if let GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Ready)) =
         state.state_machine_phase().await
     {
-        let guard = state.current_game().read().await;
-        let game = guard
-            .as_ref()
-            .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
+        state
+            .with_current_game(|game| {
+                if game.teams.is_empty() {
+                    return Err(ServiceError::InvalidInput(
+                        "cannot start a game without at least one team".into(),
+                    ));
+                }
 
-        if game.teams.is_empty() {
-            return Err(ServiceError::InvalidInput(
-                "cannot start a game without at least one team".into(),
-            ));
-        }
+                if !state.all_teams_paired(&game.teams) {
+                    return Err(ServiceError::InvalidState(
+                        "cannot start game while unpaired teams remain".into(),
+                    ));
+                }
 
-        if !state.all_teams_paired(&game.teams) {
-            return Err(ServiceError::InvalidState(
-                "cannot start game while unpaired teams remain".into(),
-            ));
-        }
+                if !state.buzzers().iter().all(|r| {
+                    game.teams.iter().any(|(_, t)| {
+                        t.buzzer_id
+                            .as_ref()
+                            .map(|id| id == r.key())
+                            .unwrap_or(false)
+                    })
+                }) {
+                    warn!("Some buzzers are not paired to any team while starting the game");
+                }
 
-        if !state.buzzers().iter().all(|r| {
-            game.teams.iter().any(|(_, t)| {
-                t.buzzer_id
-                    .as_ref()
-                    .map(|id| id == r.key())
-                    .unwrap_or(false)
+                Ok(())
             })
-        }) {
-            warn!("Some buzzers are not paired to any team while starting the game");
-        }
+            .await?;
     }
 
     let shuffled = if shuffle {
-        let mut guard = state.current_game().write().await;
-        let game = unwrap_current_game_mut(&mut guard)?;
-        // Suffle only if the playlist has not started or was completed
-        if matches!(game.current_song_index, None | Some(0)) {
-            if game.playlist_song_order.len() > 1 {
-                let mut rng = rng();
-                game.playlist_song_order.shuffle(&mut rng);
-                game.updated_at = SystemTime::now();
-                Some(game.clone())
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+        state
+            .with_current_game_mut(|game| {
+                // Shuffle only if the playlist has not started or was completed
+                if matches!(game.current_song_index, None | Some(0)) {
+                    if game.playlist_song_order.len() > 1 {
+                        let mut rng = rng();
+                        game.playlist_song_order.shuffle(&mut rng);
+                        game.updated_at = SystemTime::now();
+                        Ok(Some(game.clone()))
+                    } else {
+                        Ok(None)
+                    }
+                } else {
+                    Ok(None)
+                }
+            })
+            .await?
     } else {
         None
     };
@@ -330,6 +325,17 @@ pub async fn reveal(state: &SharedState) -> Result<ActionResponse, ServiceError>
         {
             state.notify_buzzer_turn_finished(&id)
         };
+
+        state
+            .with_current_game_mut(|game| {
+                game.current_song_found = true;
+                game.updated_at = SystemTime::now();
+                Ok(())
+            })
+            .await?;
+
+        state.persist_current_game().await?;
+
         Ok(ActionResponse {
             message: "revealed".into(),
         })
@@ -351,14 +357,16 @@ async fn load_next_song(
     state: &SharedState,
     start: bool,
 ) -> Result<Option<SongSummary>, ServiceError> {
-    let (current_song_index, playlist_length) = {
-        let guard = state.current_game().read().await;
-        let game = guard
-            .as_ref()
-            .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
-        (game.current_song_index, game.playlist_song_order.len())
-    };
-    let next_song_index = if start {
+    let (current_song_index, playlist_length, current_song_found) = state
+        .with_current_game(|game| {
+            Ok((
+                game.current_song_index,
+                game.playlist_song_order.len(),
+                game.current_song_found,
+            ))
+        })
+        .await?;
+    let next_song_index = if start && !current_song_found {
         current_song_index.or(Some(0)) // "New Game +" if playlist was completed in the previous session
     } else {
         let next_song_index = current_song_index
@@ -379,23 +387,26 @@ async fn load_next_song(
     };
 
     run_transition_with_broadcast(state, event, move || async move {
-        let summary = {
-            let mut guard = state.current_game().write().await;
-            let game = unwrap_current_game_mut(&mut guard)?;
-            game.current_song_index = next_song_index;
-            game.found_point_fields.clear();
-            game.found_bonus_fields.clear();
-            game.updated_at = SystemTime::now();
+        let summary = state
+            .with_current_game_mut(|game| {
+                if game.current_song_index != next_song_index {
+                    game.found_point_fields.clear();
+                    game.found_bonus_fields.clear();
+                }
+                game.current_song_index = next_song_index;
+                game.current_song_found = false;
+                game.updated_at = SystemTime::now();
 
-            if let Some(index) = next_song_index {
-                let (song_id, song) = game.get_song(index).ok_or_else(|| {
-                    ServiceError::InvalidState("song not found in playlist".into())
-                })?;
-                Some((song_id, song).into())
-            } else {
-                None
-            }
-        };
+                if let Some(index) = next_song_index {
+                    let (song_id, song) = game.get_song(index).ok_or_else(|| {
+                        ServiceError::InvalidState("song not found in playlist".into())
+                    })?;
+                    Ok(Some((song_id, song).into()))
+                } else {
+                    Ok(None)
+                }
+            })
+            .await?;
 
         state.persist_current_game().await?;
         Ok(summary)
@@ -409,17 +420,16 @@ pub async fn stop_game(state: &SharedState) -> Result<StopGameResponse, ServiceE
         state,
         GameEvent::Finish(FinishReason::ManualStop),
         move || async move {
-            let teams = {
-                let guard = state.current_game().read().await;
-                let game = guard
-                    .as_ref()
-                    .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
-                game.teams
-                    .iter()
-                    .map(|(id, team)| (*id, team.clone()))
-                    .map(Into::into)
-                    .collect()
-            };
+            let teams = state
+                .with_current_game(|game| {
+                    Ok(game
+                        .teams
+                        .iter()
+                        .map(|(id, team)| (*id, team.clone()))
+                        .map(Into::into)
+                        .collect())
+                })
+                .await?;
             Ok(StopGameResponse { teams })
         },
     )
@@ -429,8 +439,11 @@ pub async fn stop_game(state: &SharedState) -> Result<StopGameResponse, ServiceE
 /// Clean up any remaining shared state after the game is complete.
 pub async fn end_game(state: &SharedState) -> Result<ActionResponse, ServiceError> {
     run_transition_with_broadcast(state, GameEvent::EndGame, move || async move {
-        let mut guard = state.current_game().write().await;
-        guard.take();
+        state
+            .with_current_game_slot_mut(|slot| {
+                slot.take();
+            })
+            .await;
         Ok(ActionResponse {
             message: "ended".into(),
         })
@@ -455,50 +468,55 @@ pub async fn mark_field_found(
         ));
     }
 
-    let response = {
-        let mut guard = state.current_game().write().await;
-        let game = unwrap_current_game_mut(&mut guard)?;
+    let MarkFieldRequest {
+        song_id,
+        field_key,
+        kind,
+    } = request;
 
-        let index = game
-            .current_song_index
-            .ok_or_else(|| ServiceError::InvalidState("no active song: playlist is over".into()))?;
-        let expected_song_id = *game
-            .playlist_song_order
-            .get(index)
-            .ok_or_else(|| ServiceError::InvalidState("song index out of bounds".into()))?;
-        if expected_song_id != request.song_id {
-            return Err(ServiceError::InvalidInput(
-                "song id does not match the current song".into(),
-            ));
-        }
+    let response = state
+        .with_current_game_mut(|game| {
+            let index = game.current_song_index.ok_or_else(|| {
+                ServiceError::InvalidState("no active song: playlist is over".into())
+            })?;
+            let expected_song_id = *game
+                .playlist_song_order
+                .get(index)
+                .ok_or_else(|| ServiceError::InvalidState("song index out of bounds".into()))?;
+            if expected_song_id != song_id {
+                return Err(ServiceError::InvalidInput(
+                    "song id does not match the current song".into(),
+                ));
+            }
 
-        let song = game
-            .playlist
-            .songs
-            .get(&request.song_id)
-            .ok_or_else(|| ServiceError::InvalidState("song not found".into()))?;
+            let song = game
+                .playlist
+                .songs
+                .get(&song_id)
+                .ok_or_else(|| ServiceError::InvalidState("song not found".into()))?;
 
-        match request.kind {
-            FieldKind::Point => {
-                ensure_field_exists(&song.point_fields, &request.field_key)?;
-                if !game.found_point_fields.contains(&request.field_key) {
-                    game.found_point_fields.push(request.field_key.clone());
+            match kind {
+                FieldKind::Point => {
+                    ensure_field_exists(&song.point_fields, &field_key)?;
+                    if !game.found_point_fields.contains(&field_key) {
+                        game.found_point_fields.push(field_key.clone());
+                    }
+                }
+                FieldKind::Bonus => {
+                    ensure_field_exists(&song.bonus_fields, &field_key)?;
+                    if !game.found_bonus_fields.contains(&field_key) {
+                        game.found_bonus_fields.push(field_key.clone());
+                    }
                 }
             }
-            FieldKind::Bonus => {
-                ensure_field_exists(&song.bonus_fields, &request.field_key)?;
-                if !game.found_bonus_fields.contains(&request.field_key) {
-                    game.found_bonus_fields.push(request.field_key.clone());
-                }
-            }
-        }
 
-        FieldsFoundResponse {
-            song_id: request.song_id,
-            point_fields: game.found_point_fields.clone(),
-            bonus_fields: game.found_bonus_fields.clone(),
-        }
-    };
+            Ok(FieldsFoundResponse {
+                song_id,
+                point_fields: game.found_point_fields.clone(),
+                bonus_fields: game.found_bonus_fields.clone(),
+            })
+        })
+        .await?;
 
     state.persist_current_game().await?;
 
@@ -538,16 +556,18 @@ pub async fn adjust_score(
     let phase = state.state_machine_phase().await;
     ensure_running_phase(phase)?;
 
-    let updated_team = {
-        let mut guard = state.current_game().write().await;
-        let game = unwrap_current_game_mut(&mut guard)?;
-        let team = game
-            .teams
-            .get_mut(&team_id)
-            .ok_or_else(|| ServiceError::NotFound("team not found".into()))?;
-        team.score += request.delta;
-        team.clone()
-    };
+    let ScoreAdjustmentRequest { delta } = request;
+
+    let updated_team = state
+        .with_current_game_mut(|game| {
+            let team = game
+                .teams
+                .get_mut(&team_id)
+                .ok_or_else(|| ServiceError::NotFound("team not found".into()))?;
+            team.score += delta;
+            Ok(team.clone())
+        })
+        .await?;
 
     state.persist_current_game().await?;
     let score = updated_team.score;
@@ -568,32 +588,39 @@ pub async fn create_team(
         ));
     }
 
-    if request.name.trim().is_empty() {
+    let CreateTeamRequest {
+        name,
+        buzzer_id: buzzer_input,
+        score,
+    } = request;
+
+    if name.trim().is_empty() {
         return Err(ServiceError::InvalidInput(
             "team name must not be empty".into(),
         ));
     }
 
-    let buzzer_id = sanitize_optional_buzzer(request.buzzer_id)?;
-    let mut guard = state.current_game().write().await;
-    let game = unwrap_current_game_mut(&mut guard)?;
+    let buzzer_id = sanitize_optional_buzzer(buzzer_input)?;
 
-    if let Some(ref buzzer) = buzzer_id {
-        assert_unique_buzzer(game, None, buzzer)?;
-    }
+    let summary = state
+        .with_current_game_mut(move |game| {
+            if let Some(ref buzzer) = buzzer_id {
+                assert_unique_buzzer(game, None, buzzer)?;
+            }
 
-    let team_id = Uuid::new_v4();
-    let team = Team {
-        buzzer_id,
-        name: request.name,
-        score: request.score.unwrap_or(0),
-    };
+            let team_id = Uuid::new_v4();
+            let team = Team {
+                buzzer_id,
+                name,
+                score: score.unwrap_or(0),
+            };
 
-    game.teams.insert(team_id, team.clone());
-    drop(guard);
+            game.teams.insert(team_id, team.clone());
+            Ok(TeamSummary::from((team_id, team)))
+        })
+        .await?;
 
     state.persist_current_game().await?;
-    let summary: TeamSummary = (team_id, team).into();
     sse_events::broadcast_team_created(state, summary.clone());
 
     Ok(summary)
@@ -626,35 +653,28 @@ pub async fn update_team(
 
     let buzzer_update = buzzer_id.map(sanitize_optional_buzzer).transpose()?;
 
-    let mut guard = state.current_game().write().await;
-    let game = unwrap_current_game_mut(&mut guard)?;
+    let summary = state
+        .with_current_game_mut(move |game| {
+            if let Some(Some(ref buzzer)) = buzzer_update {
+                assert_unique_buzzer(game, Some(team_id), buzzer)?;
+            }
 
-    if let Some(Some(ref buzzer)) = buzzer_update {
-        assert_unique_buzzer(game, Some(team_id), buzzer)?;
-    }
+            let team = game
+                .teams
+                .get_mut(&team_id)
+                .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
 
-    let roster = {
-        let team = game
-            .teams
-            .get_mut(&team_id)
-            .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
+            team.name = name;
+            if let Some(buzzer) = buzzer_update.clone() {
+                team.buzzer_id = buzzer;
+            }
+            if let Some(new_score) = score {
+                team.score = new_score;
+            }
 
-        team.name = name;
-        if let Some(buzzer) = buzzer_update.clone() {
-            team.buzzer_id = buzzer;
-        }
-        if let Some(new_score) = score {
-            team.score = new_score;
-        }
-
-        game.teams.clone()
-    };
-
-    let summary = roster
-        .get(&team_id)
-        .map(|team| TeamSummary::from((team_id, team.clone())))
-        .expect("team must exist");
-    drop(guard);
+            Ok(TeamSummary::from((team_id, team.clone())))
+        })
+        .await?;
 
     state.persist_current_game().await?;
     sse_events::broadcast_team_updated(state, summary.clone());
@@ -666,18 +686,17 @@ pub async fn update_team(
 pub async fn delete_team(state: &SharedState, team_id: Uuid) -> Result<(), ServiceError> {
     let prep_status = ensure_prep_phase(state).await?;
 
-    let roster = {
-        let mut guard = state.current_game().write().await;
-        let game = unwrap_current_game_mut(&mut guard)?;
+    let roster = state
+        .with_current_game_mut(move |game| {
+            if game.teams.shift_remove(&team_id).is_none() {
+                return Err(ServiceError::NotFound(format!(
+                    "team `{team_id}` not found"
+                )));
+            }
 
-        if game.teams.shift_remove(&team_id).is_none() {
-            return Err(ServiceError::NotFound(format!(
-                "team `{team_id}` not found"
-            )));
-        }
-
-        game.teams.clone()
-    };
+            Ok(game.teams.clone())
+        })
+        .await?;
 
     let pairing_progress = match prep_status {
         PrepStatus::Ready => None,
@@ -716,20 +735,17 @@ pub async fn start_pairing(
 
     let first_team_id = request.first_team_id;
 
-    let snapshot = {
-        let guard = state.current_game().read().await;
-        let game = guard
-            .as_ref()
-            .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
+    let snapshot = state
+        .with_current_game(|game| {
+            if !game.teams.contains_key(&first_team_id) {
+                return Err(ServiceError::NotFound(format!(
+                    "team `{first_team_id}` not found"
+                )));
+            }
 
-        if !game.teams.contains_key(&first_team_id) {
-            return Err(ServiceError::NotFound(format!(
-                "team `{first_team_id}` not found"
-            )));
-        }
-
-        game.teams.clone()
-    };
+            Ok(game.teams.clone())
+        })
+        .await?;
 
     let session = PairingSession {
         pairing_team_id: first_team_id,
@@ -766,12 +782,13 @@ pub async fn abort_pairing(state: &SharedState) -> Result<Vec<TeamSummary>, Serv
                 .pairing_session()
                 .await
                 .ok_or_else(|| ServiceError::InvalidState("no pairing session is active".into()))?;
-            let mut guard = state.current_game().write().await;
-            let game = unwrap_current_game_mut(&mut guard)?;
-            game.teams = session.snapshot;
-            let roster = game.teams.clone();
-            drop(guard);
-            Ok(roster)
+            let snapshot = session.snapshot;
+            state
+                .with_current_game_mut(move |game| {
+                    game.teams = snapshot;
+                    Ok(game.teams.clone())
+                })
+                .await
         })
         .await?;
 

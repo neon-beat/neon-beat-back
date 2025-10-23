@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.5.3] - Bugfix when an unpaired buzzer buzzes in PrepReady & save song finished info
+
+- Fix the bug when an unpaired buzzer buzzes in PrepReady maked the game stucked
+- Rubustify GameSession concurent access
+- Send the team who buzzed in the GET phase route and the SSE event
+- Save the information that a song has been found (to be able to switch to next song if the game restarts) => Needs to clear the database to use this version !
+
 ## [v0.5.2] - Keep playlist song order
 
 - Keep playlist song order (from JSON) if no shuffle => Needs to clear the database to use this version !
