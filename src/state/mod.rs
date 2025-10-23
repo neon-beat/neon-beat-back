@@ -173,9 +173,52 @@ impl AppState {
         self.game.read().await.phase()
     }
 
-    /// Currently active game session data.
-    pub fn current_game(&self) -> &RwLock<Option<GameSession>> {
-        &self.current_game
+    /// Mutate the in-memory game session, returning the closure result.
+    ///
+    /// The provided closure must remain synchronous; it is executed while the
+    /// write lock on the current game is held. Returning any data needed for
+    /// subsequent async work allows the lock to be released before awaiting.
+    pub async fn with_current_game_mut<F, R>(&self, f: F) -> Result<R, ServiceError>
+    where
+        F: FnOnce(&mut GameSession) -> Result<R, ServiceError>,
+    {
+        self.with_current_game_slot_mut(|slot| {
+            let game = slot
+                .as_mut()
+                .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
+            f(game)
+        })
+        .await
+    }
+
+    /// Read the optional current game slot.
+    pub async fn read_current_game<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(Option<&GameSession>) -> R,
+    {
+        let guard = self.current_game.read().await;
+        f(guard.as_ref())
+    }
+
+    /// Borrow the active game immutably, returning an error if none is present.
+    pub async fn with_current_game<F, R>(&self, f: F) -> Result<R, ServiceError>
+    where
+        F: FnOnce(&GameSession) -> Result<R, ServiceError>,
+    {
+        self.read_current_game(|maybe| match maybe {
+            Some(game) => f(game),
+            None => Err(ServiceError::InvalidState("no active game".into())),
+        })
+        .await
+    }
+
+    /// Mutate the optional current game slot directly.
+    pub async fn with_current_game_slot_mut<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut Option<GameSession>) -> R,
+    {
+        let mut guard = self.current_game.write().await;
+        f(&mut guard)
     }
 
     /// Update and broadcast the degraded flag when the value changes.

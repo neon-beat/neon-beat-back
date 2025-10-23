@@ -244,11 +244,7 @@ impl From<(GameEntity, PlaylistEntity)> for GameSession {
             name: game.name,
             created_at: game.created_at,
             updated_at: game.updated_at,
-            teams: game
-                .teams
-                .into_iter()
-                .map(Into::into)
-                .collect(),
+            teams: game.teams.into_iter().map(Into::into).collect(),
             playlist: playlist.into(),
             playlist_song_order: game.playlist_song_order,
             current_song_index: game.current_song_index,
@@ -265,11 +261,7 @@ impl From<GameSession> for GameEntity {
             name: value.name,
             created_at: value.created_at,
             updated_at: value.updated_at,
-            teams: value
-                .teams
-                .into_iter()
-                .map(Into::into)
-                .collect(),
+            teams: value.teams.into_iter().map(Into::into).collect(),
             playlist_id: value.playlist.id,
             playlist_song_order: value.playlist_song_order,
             current_song_index: value.current_song_index,

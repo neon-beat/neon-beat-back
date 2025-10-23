@@ -90,10 +90,11 @@ pub async fn create_game(
     };
 
     store.save_game(game.clone().into()).await?;
-    {
-        let mut slot = state.current_game().write().await;
-        *slot = Some(game.clone());
-    }
+    state
+        .with_current_game_slot_mut(|slot| {
+            *slot = Some(game.clone());
+        })
+        .await;
 
     sse_events::broadcast_game_session(state, &game);
 
@@ -129,10 +130,11 @@ pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, Ser
     validate_persisted_game(&game, &playlist)?;
 
     let game_session: GameSession = (game, playlist).into();
-    {
-        let mut slot = state.current_game().write().await;
-        *slot = Some(game_session.clone());
-    }
+    state
+        .with_current_game_slot_mut(|slot| {
+            *slot = Some(game_session.clone());
+        })
+        .await;
 
     sse_events::broadcast_game_session(state, &game_session);
 

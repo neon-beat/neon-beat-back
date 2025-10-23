@@ -203,34 +203,31 @@ pub async fn handle_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), Ser
 }
 
 async fn handle_prep_ready_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), ServiceError> {
-    let maybe_summary = {
-        let mut guard = state.current_game().write().await;
-        let game = guard
-            .as_mut()
-            .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
+    let maybe_summary = state
+        .with_current_game_mut(|game| {
+            if let Some((&team_id, _)) = game
+                .teams
+                .iter()
+                .find(|(_, team)| team.buzzer_id.as_deref() == Some(buzzer_id))
+            {
+                sse_events::broadcast_test_buzz(state, team_id);
+                Ok(None)
+            } else if state.all_teams_paired(&game.teams) {
+                let team_id = Uuid::new_v4();
+                let new_team = Team {
+                    buzzer_id: Some(buzzer_id.to_string()),
+                    name: format!("Team {}", game.teams.len() + 1),
+                    score: 0,
+                };
 
-        if let Some((&team_id, _)) = game
-            .teams
-            .iter()
-            .find(|(_, team)| team.buzzer_id.as_deref() == Some(buzzer_id))
-        {
-            sse_events::broadcast_test_buzz(state, team_id);
-            None
-        } else if state.all_teams_paired(&game.teams) {
-            let team_id = Uuid::new_v4();
-            let new_team = Team {
-                buzzer_id: Some(buzzer_id.to_string()),
-                name: format!("Team {}", game.teams.len() + 1),
-                score: 0,
-            };
-
-            let summary = TeamSummary::from((team_id, new_team.clone()));
-            game.teams.insert(team_id, new_team);
-            Some(summary)
-        } else {
-            None
-        }
-    };
+                let summary = TeamSummary::from((team_id, new_team.clone()));
+                game.teams.insert(team_id, new_team);
+                Ok(Some(summary))
+            } else {
+                Ok(None)
+            }
+        })
+        .await?;
 
     if let Some(summary) = maybe_summary {
         state.persist_current_game().await?;
@@ -250,27 +247,25 @@ async fn handle_prep_pairing_buzz(
         .ok_or_else(|| ServiceError::InvalidState("pairing workflow lost session state".into()))?;
     let team_id = pairing_session.pairing_team_id;
 
-    let mut guard = state.current_game().write().await;
-    let game = guard
-        .as_mut()
-        .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?;
+    let roster = state
+        .with_current_game_mut(|game| {
+            {
+                let team = game
+                    .teams
+                    .get_mut(&team_id)
+                    .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
+                team.buzzer_id = Some(buzzer_id.to_string());
+            }
 
-    {
-        let team = game
-            .teams
-            .get_mut(&team_id)
-            .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
-        team.buzzer_id = Some(buzzer_id.to_string());
-    }
+            for (id, team) in game.teams.iter_mut() {
+                if *id != team_id && team.buzzer_id.as_deref() == Some(buzzer_id) {
+                    team.buzzer_id = None;
+                }
+            }
 
-    for (id, team) in game.teams.iter_mut() {
-        if *id != team_id && team.buzzer_id.as_deref() == Some(buzzer_id) {
-            team.buzzer_id = None;
-        }
-    }
-
-    let roster = game.teams.clone();
-    drop(guard);
+            Ok(game.teams.clone())
+        })
+        .await?;
 
     let pairing_progress =
         apply_pairing_update(state, PairingSessionUpdate::Assigned { team_id, roster })
@@ -295,14 +290,15 @@ fn is_valid_buzzer_id(value: &str) -> bool {
 }
 
 async fn handle_playing_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), ServiceError> {
-    let team_known = {
-        let guard = state.current_game().read().await;
-        guard.as_ref().is_some_and(|game| {
-            game.teams
-                .iter()
-                .any(|(_, team)| team.buzzer_id.as_deref() == Some(buzzer_id))
+    let team_known = state
+        .read_current_game(|maybe| {
+            maybe.is_some_and(|game| {
+                game.teams
+                    .iter()
+                    .any(|(_, team)| team.buzzer_id.as_deref() == Some(buzzer_id))
+            })
         })
-    };
+        .await;
 
     if !team_known {
         return Err(ServiceError::InvalidState(format!(

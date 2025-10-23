@@ -155,16 +155,15 @@ async fn build_phase_changed_event(
         _ => None,
     };
 
-    let (song, scoreboard) = {
-        let guard = state.current_game().read().await;
-        match guard.as_ref() {
+    let (song, scoreboard) = state
+        .read_current_game(|maybe| match maybe {
             Some(game) => (
                 song_snapshot_for_phase(game, phase),
                 scoreboard_for_phase(game, phase),
             ),
             None => (None, None),
-        }
-    };
+        })
+        .await;
 
     Some(PhaseChangedEvent {
         phase: kind,
