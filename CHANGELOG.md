@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.5.4] - Add an outer helper tool to generate colors
+
+- Add an outer helper tool to generate colors
+
 ## [v0.5.3] - Bugfix when an unpaired buzzer buzzes in PrepReady & save song finished info
 
 - Fix the bug when an unpaired buzzer buzzes in PrepReady maked the game stucked
