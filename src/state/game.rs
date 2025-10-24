@@ -50,8 +50,11 @@ pub struct PointField {
 /// HSV color assigned to a team.
 #[derive(Debug, Clone)]
 pub struct TeamColor {
+    /// Hue component (in degrees) of the HSV color.
     pub h: f32,
+    /// Saturation component of the HSV color.
     pub s: f32,
+    /// Value (brightness) component of the HSV color.
     pub v: f32,
 }
 
@@ -135,6 +138,39 @@ impl GameSession {
                 .get(song_id)
                 .map(|song| (*song_id, song.clone()))
         })
+    }
+
+    /// Insert a new team into the session, generating default values when they are omitted.
+    ///
+    /// The color is selected from the configured colors set when not specified and the team name
+    /// falls back to `Team X` (with X starting at 1) to keep the UI human-friendly.
+    pub fn add_team(
+        &mut self,
+        config: &crate::config::AppConfig,
+        name: Option<String>,
+        buzzer_id: Option<String>,
+        score: Option<i32>,
+        color: Option<TeamColor>,
+    ) -> (Uuid, Team) {
+        let team_id = Uuid::new_v4();
+        // Reuse provided color when present, otherwise pick the next free colors set slot.
+        let color = color.unwrap_or_else(|| {
+            config.first_unused_color(
+                &self
+                    .teams
+                    .values()
+                    .map(|existing| existing.color.clone())
+                    .collect::<Vec<_>>(),
+            )
+        });
+        let team = Team {
+            buzzer_id,
+            name: name.unwrap_or_else(|| format!("Team {}", self.teams.len() + 1)),
+            score: score.unwrap_or(0),
+            color,
+        };
+        self.teams.insert(team_id, team.clone());
+        (team_id, team)
     }
 }
 
@@ -280,16 +316,6 @@ impl From<TeamColor> for TeamColorEntity {
             h: value.h,
             s: value.s,
             v: value.v,
-        }
-    }
-}
-
-impl Default for TeamColor {
-    fn default() -> Self {
-        Self {
-            h: 0.0,
-            s: 0.0,
-            v: 1.0,
         }
     }
 }

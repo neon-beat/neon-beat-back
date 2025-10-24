@@ -7,6 +7,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::services::websocket_service::send_message_to_websocket;
 use crate::{
+    config::AppConfig,
     dao::game_store::GameStore,
     dto::{
         common::{GamePhaseSnapshot, SongSnapshot},
@@ -47,6 +48,7 @@ pub struct BuzzerConnection {
 
 /// Central application state storing persistent connections and database handles.
 pub struct AppState {
+    config: Arc<AppConfig>,
     game_store: RwLock<Option<Arc<dyn GameStore>>>,
     sse: SseState,
     buzzers: DashMap<String, BuzzerConnection>,
@@ -65,6 +67,7 @@ impl AppState {
     pub fn new() -> SharedState {
         let (degraded_tx, _rx) = watch::channel(true);
         Arc::new(Self {
+            config: Arc::new(AppConfig::load()),
             game_store: RwLock::new(None),
             sse: SseState::new(16, 16),
             buzzers: DashMap::new(),
@@ -109,6 +112,11 @@ impl AppState {
             *guard = Some(store);
         }
         self.update_degraded(false).await;
+    }
+
+    /// Access the immutable application configuration.
+    pub fn config(&self) -> Arc<AppConfig> {
+        Arc::clone(&self.config)
     }
 
     /// Current degraded flag.

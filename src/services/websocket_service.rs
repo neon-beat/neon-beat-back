@@ -4,7 +4,6 @@ use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::{info, warn};
-use uuid::Uuid;
 
 use crate::{
     dto::{
@@ -18,7 +17,6 @@ use crate::{
     },
     state::{
         BuzzerConnection, SharedState,
-        game::{Team, TeamColor},
         state_machine::{GameEvent, GamePhase, GameRunningPhase, PauseKind, PrepStatus},
         transitions::run_transition_with_broadcast,
     },
@@ -203,6 +201,7 @@ pub async fn handle_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), Ser
 }
 
 async fn handle_prep_ready_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), ServiceError> {
+    let config = state.config();
     let maybe_summary = state
         .with_current_game_mut(|game| {
             if let Some((&team_id, _)) = game
@@ -213,17 +212,14 @@ async fn handle_prep_ready_buzz(state: &SharedState, buzzer_id: &str) -> Result<
                 sse_events::broadcast_test_buzz(state, team_id);
                 Ok(None)
             } else if state.all_teams_paired(&game.teams) {
-                let team_id = Uuid::new_v4();
-                let new_team = Team {
-                    buzzer_id: Some(buzzer_id.to_string()),
-                    name: format!("Team {}", game.teams.len() + 1),
-                    score: 0,
-                    color: TeamColor::default(),
-                };
-
-                let summary = TeamSummary::from((team_id, new_team.clone()));
-                game.teams.insert(team_id, new_team);
-                Ok(Some(summary))
+                let (team_id, new_team) = game.add_team(
+                    config.as_ref(),
+                    None,
+                    Some(buzzer_id.to_string()),
+                    None,
+                    None,
+                );
+                Ok(Some(TeamSummary::from((team_id, new_team))))
             } else {
                 Ok(None)
             }
@@ -232,7 +228,7 @@ async fn handle_prep_ready_buzz(state: &SharedState, buzzer_id: &str) -> Result<
 
     if let Some(summary) = maybe_summary {
         state.persist_current_game().await?;
-        sse_events::broadcast_team_created(state, summary.clone());
+        sse_events::broadcast_team_created(state, summary);
     }
     Ok(())
 }

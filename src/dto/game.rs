@@ -32,6 +32,8 @@ pub struct TeamInput {
     #[serde(default)]
     #[schema(value_type = i32)]
     pub score: Option<i32>,
+    /// Optional HSV color. If omitted, the backend chooses the first unused color from the
+    /// configured colors set.
     #[serde(default)]
     #[schema(value_type = TeamColorDto)]
     pub color: Option<TeamColorDto>,

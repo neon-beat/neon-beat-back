@@ -38,5 +38,6 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /app/bin/neon-beat-back /usr/local/bin/neon-beat-back
+# COPY config/ ./config
 EXPOSE 8080
 CMD ["neon-beat-back"]

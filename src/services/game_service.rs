@@ -4,6 +4,7 @@ use indexmap::IndexMap;
 use uuid::Uuid;
 
 use crate::{
+    config::AppConfig,
     dao::models::{GameEntity, PlaylistEntity},
     dto::game::{GameSummary, PlaylistInput, PlaylistSummary, SongInput, TeamInput},
     error::ServiceError,
@@ -56,6 +57,7 @@ pub async fn create_game(
     playlist: Option<Playlist>,
 ) -> Result<GameSummary, ServiceError> {
     ensure_idle(state).await?;
+    let config = state.config();
 
     if name.trim().is_empty() {
         return Err(ServiceError::InvalidInput(
@@ -63,20 +65,19 @@ pub async fn create_game(
         ));
     }
 
-    let teams = if teams.is_empty() {
-        IndexMap::new()
-    } else {
-        build_teams(teams)?
-    };
+    let teams = build_teams(teams, config.as_ref())?;
 
     let store = state.game_store().await.ok_or(ServiceError::Degraded)?;
 
-    let playlist = playlist.unwrap_or({
-        let playlist_entity = store.find_playlist(playlist_id).await?.ok_or_else(|| {
-            ServiceError::NotFound(format!("playlist `{}` not found", playlist_id))
-        })?;
-        playlist_entity.into()
-    });
+    let playlist = match playlist {
+        Some(p) => p,
+        None => {
+            let playlist_entity = store.find_playlist(playlist_id).await?.ok_or_else(|| {
+                ServiceError::NotFound(format!("playlist `{}` not found", playlist_id))
+            })?;
+            playlist_entity.into()
+        }
+    };
 
     if playlist.songs.is_empty() {
         return Err(ServiceError::InvalidInput(
@@ -151,8 +152,15 @@ async fn ensure_idle(state: &SharedState) -> Result<(), ServiceError> {
     Ok(())
 }
 
-fn build_teams(teams: Vec<TeamInput>) -> Result<IndexMap<Uuid, Team>, ServiceError> {
+/// Validate incoming DTO teams, applying defaults and allocating a color from the colors set when
+/// none is provided. Ensures buzzer IDs remain unique.
+fn build_teams(
+    teams: Vec<TeamInput>,
+    config: &AppConfig,
+) -> Result<IndexMap<Uuid, Team>, ServiceError> {
     let mut seen_ids = HashSet::new();
+    let mut used_colors = Vec::new();
+
     teams
         .into_iter()
         .map(|team| {
@@ -180,15 +188,21 @@ fn build_teams(teams: Vec<TeamInput>) -> Result<IndexMap<Uuid, Team>, ServiceErr
                 ));
             }
 
-            Ok((
-                Uuid::new_v4(),
-                Team {
-                    buzzer_id,
-                    name: team.name,
-                    score: team.score.unwrap_or_default(),
-                    color: team.color.map(Into::into).unwrap_or_default(),
-                },
-            ))
+            // Pick the first free color; fall back to the colors set order if everything is taken.
+            let color = team
+                .color
+                .map(Into::into)
+                .unwrap_or_else(|| config.first_unused_color(&used_colors));
+            used_colors.push(color.clone());
+
+            let team = Team {
+                buzzer_id,
+                name: team.name,
+                score: team.score.unwrap_or_default(),
+                color,
+            };
+
+            Ok((Uuid::new_v4(), team))
         })
         .collect()
 }
