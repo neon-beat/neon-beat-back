@@ -6,9 +6,10 @@ use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::{info, warn};
 
 use crate::{
+    config::BuzzerPatternPreset,
     dto::{
         game::TeamSummary,
-        ws::{BuzzFeedback, BuzzerAck, BuzzerInboundMessage},
+        ws::{BuzzFeedback, BuzzerAck, BuzzerInboundMessage, BuzzerOutboundMessage},
     },
     error::ServiceError,
     services::{
@@ -104,6 +105,13 @@ pub async fn handle_socket(state: SharedState, socket: WebSocket) {
         },
         "buzzer ack",
     );
+    send_message_to_websocket(
+        &outbound_tx,
+        &BuzzerOutboundMessage {
+            pattern: state.buzzer_pattern(BuzzerPatternPreset::WaitingForPairing),
+        },
+        "waiting for pairing",
+    );
 
     while let Some(message) = receiver.next().await {
         match message {
@@ -113,7 +121,7 @@ pub async fn handle_socket(state: SharedState, socket: WebSocket) {
                 match serde_json::from_str::<BuzzerInboundMessage>(&text) {
                     Ok(BuzzerInboundMessage::Buzz { id }) => {
                         let res = if id == buzzer_id {
-                            handle_buzz(&state, &id).await
+                            handle_buzz(&state, &id, &outbound_tx).await
                         } else {
                             Err(ServiceError::InvalidState(format!(
                                 "Buzz ignored: mismatched ID (expected {buzzer_id}, got {id})"
@@ -183,13 +191,17 @@ pub fn send_message_to_websocket<T>(
 }
 
 /// Process a buzz coming from a buzzer connection, returning whether the team can answer.
-pub async fn handle_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), ServiceError> {
+pub async fn handle_buzz(
+    state: &SharedState,
+    buzzer_id: &str,
+    outbound_tx: &mpsc::UnboundedSender<Message>,
+) -> Result<(), ServiceError> {
     match state.state_machine_phase().await {
         GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Ready)) => {
-            handle_prep_ready_buzz(state, buzzer_id).await
+            handle_prep_ready_buzz(state, buzzer_id, outbound_tx).await
         }
         GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Pairing(_))) => {
-            handle_prep_pairing_buzz(state, buzzer_id).await
+            handle_prep_pairing_buzz(state, buzzer_id, outbound_tx).await
         }
         GamePhase::GameRunning(GameRunningPhase::Playing) => {
             handle_playing_buzz(state, buzzer_id).await
@@ -200,7 +212,11 @@ pub async fn handle_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), Ser
     }
 }
 
-async fn handle_prep_ready_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), ServiceError> {
+async fn handle_prep_ready_buzz(
+    state: &SharedState,
+    buzzer_id: &str,
+    outbound_tx: &mpsc::UnboundedSender<Message>,
+) -> Result<(), ServiceError> {
     let config = state.config();
     let maybe_summary = state
         .with_current_game_mut(|game| {
@@ -218,6 +234,14 @@ async fn handle_prep_ready_buzz(state: &SharedState, buzzer_id: &str) -> Result<
                     Some(buzzer_id.to_string()),
                     None,
                     None,
+                );
+                send_message_to_websocket(
+                    outbound_tx,
+                    &BuzzerOutboundMessage {
+                        pattern: state
+                            .buzzer_pattern(BuzzerPatternPreset::Standby(new_team.color.clone())),
+                    },
+                    "standby",
                 );
                 Ok(Some(TeamSummary::from((team_id, new_team))))
             } else {
@@ -237,6 +261,7 @@ async fn handle_prep_ready_buzz(state: &SharedState, buzzer_id: &str) -> Result<
 async fn handle_prep_pairing_buzz(
     state: &SharedState,
     buzzer_id: &str,
+    outbound_tx: &mpsc::UnboundedSender<Message>,
 ) -> Result<(), ServiceError> {
     let pairing_session = state
         .pairing_session()
@@ -244,15 +269,16 @@ async fn handle_prep_pairing_buzz(
         .ok_or_else(|| ServiceError::InvalidState("pairing workflow lost session state".into()))?;
     let team_id = pairing_session.pairing_team_id;
 
-    let roster = state
+    let (roster, team_color) = state
         .with_current_game_mut(|game| {
-            {
+            let team_color = {
                 let team = game
                     .teams
                     .get_mut(&team_id)
                     .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
                 team.buzzer_id = Some(buzzer_id.to_string());
-            }
+                team.color.clone()
+            };
 
             for (id, team) in game.teams.iter_mut() {
                 if *id != team_id && team.buzzer_id.as_deref() == Some(buzzer_id) {
@@ -260,9 +286,17 @@ async fn handle_prep_pairing_buzz(
                 }
             }
 
-            Ok(game.teams.clone())
+            Ok((game.teams.clone(), team_color))
         })
         .await?;
+
+    send_message_to_websocket(
+        outbound_tx,
+        &BuzzerOutboundMessage {
+            pattern: state.buzzer_pattern(BuzzerPatternPreset::Standby(team_color)),
+        },
+        "standby",
+    );
 
     let pairing_progress =
         apply_pairing_update(state, PairingSessionUpdate::Assigned { team_id, roster })

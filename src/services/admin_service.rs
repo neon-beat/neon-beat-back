@@ -8,6 +8,7 @@ use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::{
+    config::BuzzerPatternPreset,
     dto::{
         admin::{
             ActionResponse, AnswerValidationRequest, CreateGameRequest, CreateTeamRequest,
@@ -19,12 +20,14 @@ use crate::{
             CreateGameWithPlaylistRequest, GameSummary, PlaylistInput, PlaylistSummary,
             SongSummary, TeamInput, TeamSummary,
         },
+        ws::BuzzerOutboundMessage,
     },
     error::ServiceError,
     services::{
         game_service,
         pairing::{PairingSessionUpdate, apply_pairing_update, handle_pairing_progress},
         sse_events,
+        websocket_service::send_message_to_websocket,
     },
     state::{
         SharedState,
@@ -319,7 +322,7 @@ pub async fn resume_game(state: &SharedState) -> Result<ActionResponse, ServiceE
 
 /// Reveal the current song and conclude any outstanding buzz sequence.
 pub async fn reveal(state: &SharedState) -> Result<ActionResponse, ServiceError> {
-    run_transition_with_broadcast(state, GameEvent::Reveal, move || async move {
+    let result = run_transition_with_broadcast(state, GameEvent::Reveal, move || async move {
         if let GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { id })) =
             state.state_machine_phase().await
         {
@@ -340,7 +343,46 @@ pub async fn reveal(state: &SharedState) -> Result<ActionResponse, ServiceError>
             message: "revealed".into(),
         })
     })
-    .await
+    .await?;
+    state
+        .with_current_game(|game| {
+            game.teams
+                .iter()
+                .map(|(team_id, team)| {
+                    team.buzzer_id
+                        .as_ref()
+                        .ok_or_else(|| {
+                            ServiceError::InvalidState(format!(
+                                "team `{team_id}` has no paired buzzer"
+                            ))
+                        })
+                        .and_then(|buzzer_id| {
+                            state
+                                .buzzers()
+                                .get(buzzer_id)
+                                .ok_or_else(|| {
+                                    ServiceError::InvalidState(format!(
+                                        "buzzer `{buzzer_id}` is not connected"
+                                    ))
+                                })
+                                .map(|buzzer| buzzer.tx.clone())
+                                .map(|tx| {
+                                    send_message_to_websocket(
+                                        &tx,
+                                        &BuzzerOutboundMessage {
+                                            pattern: state.buzzer_pattern(
+                                                BuzzerPatternPreset::Standby(team.color.clone()),
+                                            ),
+                                        },
+                                        "standby",
+                                    )
+                                })
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .await?;
+    Ok(result)
 }
 
 /// Advance to the next song or finish the playlist when exhausted.
@@ -438,7 +480,7 @@ pub async fn stop_game(state: &SharedState) -> Result<StopGameResponse, ServiceE
 
 /// Clean up any remaining shared state after the game is complete.
 pub async fn end_game(state: &SharedState) -> Result<ActionResponse, ServiceError> {
-    run_transition_with_broadcast(state, GameEvent::EndGame, move || async move {
+    let response = run_transition_with_broadcast(state, GameEvent::EndGame, move || async move {
         state
             .with_current_game_slot_mut(|slot| {
                 slot.take();
@@ -448,7 +490,19 @@ pub async fn end_game(state: &SharedState) -> Result<ActionResponse, ServiceErro
             message: "ended".into(),
         })
     })
-    .await
+    .await?;
+    state.buzzers().iter().for_each(|connection| {
+        let tx = connection.tx.clone();
+        drop(connection);
+        send_message_to_websocket(
+            &tx,
+            &BuzzerOutboundMessage {
+                pattern: state.buzzer_pattern(BuzzerPatternPreset::WaitingForPairing),
+            },
+            "waiting for pairing",
+        );
+    });
+    Ok(response)
 }
 
 // ---------------------------------------------------------------------------
