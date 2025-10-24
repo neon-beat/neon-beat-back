@@ -4,7 +4,8 @@ use uuid::Uuid;
 
 use crate::{
     dao::models::{
-        GameEntity, PlaylistEntity, PointFieldEntity, SongEntity, TeamEntity, TeamSummaryEntity,
+        GameEntity, PlaylistEntity, PointFieldEntity, SongEntity, TeamColorEntity, TeamEntity,
+        TeamSummaryEntity,
     },
     dto::game::TeamBriefSummary,
 };
@@ -46,6 +47,24 @@ pub struct PointField {
     pub points: u8,
 }
 
+/// HSV color assigned to a team.
+#[derive(Debug, Clone)]
+pub struct TeamColor {
+    pub h: f32,
+    pub s: f32,
+    pub v: f32,
+}
+
+impl PartialEq for TeamColor {
+    fn eq(&self, other: &Self) -> bool {
+        self.h.to_bits() == other.h.to_bits()
+            && self.s.to_bits() == other.s.to_bits()
+            && self.v.to_bits() == other.v.to_bits()
+    }
+}
+
+impl Eq for TeamColor {}
+
 /// Team info tracked during a game session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Team {
@@ -55,6 +74,8 @@ pub struct Team {
     pub name: String,
     /// Current score for the team.
     pub score: i32,
+    /// HSV color assigned to the team.
+    pub color: TeamColor,
 }
 
 /// Aggregated state for an in-progress or persisted game session.
@@ -204,6 +225,7 @@ impl From<TeamEntity> for Team {
             buzzer_id: value.buzzer_id,
             name: value.name,
             score: value.score,
+            color: value.color.into(),
         }
     }
 }
@@ -215,6 +237,7 @@ impl From<TeamEntity> for (Uuid, Team) {
             buzzer_id: value.buzzer_id,
             name: value.name,
             score: value.score,
+            color: value.color.into(),
         };
         (id, team)
     }
@@ -227,6 +250,7 @@ impl From<(Uuid, Team)> for TeamEntity {
             buzzer_id: team.buzzer_id,
             name: team.name,
             score: team.score,
+            color: team.color.into(),
         }
     }
 }
@@ -236,6 +260,36 @@ impl From<TeamSummaryEntity> for TeamBriefSummary {
         Self {
             id: value.id,
             name: value.name,
+        }
+    }
+}
+
+impl From<TeamColorEntity> for TeamColor {
+    fn from(value: TeamColorEntity) -> Self {
+        Self {
+            h: value.h,
+            s: value.s,
+            v: value.v,
+        }
+    }
+}
+
+impl From<TeamColor> for TeamColorEntity {
+    fn from(value: TeamColor) -> Self {
+        Self {
+            h: value.h,
+            s: value.s,
+            v: value.v,
+        }
+    }
+}
+
+impl Default for TeamColor {
+    fn default() -> Self {
+        Self {
+            h: 0.0,
+            s: 0.0,
+            v: 1.0,
         }
     }
 }

@@ -50,7 +50,26 @@ pub struct TeamEntity {
     pub name: String,
     /// Current score for the team.
     pub score: i32,
+    /// HSV color assigned to the team.
+    pub color: TeamColorEntity,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TeamColorEntity {
+    pub h: f32,
+    pub s: f32,
+    pub v: f32,
+}
+
+impl PartialEq for TeamColorEntity {
+    fn eq(&self, other: &Self) -> bool {
+        self.h.to_bits() == other.h.to_bits()
+            && self.s.to_bits() == other.s.to_bits()
+            && self.v.to_bits() == other.v.to_bits()
+    }
+}
+
+impl Eq for TeamColorEntity {}
 
 /// Summary representation of a team stored in persistence and shared across layers.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

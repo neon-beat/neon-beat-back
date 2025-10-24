@@ -17,7 +17,7 @@ use crate::{
         },
         game::{
             CreateGameWithPlaylistRequest, GameSummary, PlaylistInput, PlaylistSummary,
-            SongSummary, TeamSummary,
+            SongSummary, TeamInput, TeamSummary,
         },
     },
     error::ServiceError,
@@ -588,11 +588,12 @@ pub async fn create_team(
         ));
     }
 
-    let CreateTeamRequest {
+    let CreateTeamRequest(TeamInput {
         name,
         buzzer_id: buzzer_input,
         score,
-    } = request;
+        color,
+    }) = request;
 
     if name.trim().is_empty() {
         return Err(ServiceError::InvalidInput(
@@ -600,7 +601,7 @@ pub async fn create_team(
         ));
     }
 
-    let buzzer_id = sanitize_optional_buzzer(buzzer_input)?;
+    let buzzer_id = sanitize_optional_buzzer(buzzer_input.unwrap_or_default())?;
 
     let summary = state
         .with_current_game_mut(move |game| {
@@ -613,6 +614,7 @@ pub async fn create_team(
                 buzzer_id,
                 name,
                 score: score.unwrap_or(0),
+                color: color.map(Into::into).unwrap_or_default(),
             };
 
             game.teams.insert(team_id, team.clone());
@@ -632,11 +634,12 @@ pub async fn update_team(
     team_id: Uuid,
     request: UpdateTeamRequest,
 ) -> Result<TeamSummary, ServiceError> {
-    let UpdateTeamRequest {
+    let UpdateTeamRequest(TeamInput {
         name,
         buzzer_id,
         score,
-    } = request;
+        color,
+    }) = request;
 
     let prep_status = ensure_prep_phase(state).await?;
     if matches!(prep_status, PrepStatus::Pairing(_)) {
@@ -670,6 +673,9 @@ pub async fn update_team(
             }
             if let Some(new_score) = score {
                 team.score = new_score;
+            }
+            if let Some(color_update) = color {
+                team.color = color_update.into();
             }
 
             Ok(TeamSummary::from((team_id, team.clone())))

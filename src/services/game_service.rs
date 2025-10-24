@@ -158,6 +158,7 @@ fn build_teams(teams: Vec<TeamInput>) -> Result<IndexMap<Uuid, Team>, ServiceErr
         .map(|team| {
             let buzzer_id = team
                 .buzzer_id
+                .unwrap_or_default()
                 .as_ref()
                 .map(|id| sanitize_buzzer_id(id))
                 .transpose()?
@@ -184,7 +185,8 @@ fn build_teams(teams: Vec<TeamInput>) -> Result<IndexMap<Uuid, Team>, ServiceErr
                 Team {
                     buzzer_id,
                     name: team.name,
-                    score: 0,
+                    score: team.score.unwrap_or_default(),
+                    color: team.color.map(Into::into).unwrap_or_default(),
                 },
             ))
         })
