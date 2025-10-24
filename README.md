@@ -25,23 +25,49 @@ The command writes both HTML grids and JSON files in that directory and prints t
 
 ## Configuration
 
-Team colors (and future runtime knobs) are read from a JSON file at startup:
+Team colors and buzzer patterns (and future runtime knobs) are read from a JSON file at startup:
 
 - Default location: `config/app.json`
 - Override: set the `NEON_BEAT_BACK_CONFIG_PATH` environment variable to point at any JSON file
 
-If the file is absent or malformed the backend continues with the built-in colors set so you can run the server without creating a config file. To customise colors, drop a file with the following shape:
+If the file is absent or malformed the backend continues with the built-in defaults so you can run the server without creating a config file. To customise values, drop a file with the following shape:
 
 ```json
 {
-  "colors": [
-    { "hue": -64.69388, "saturation": 1.0, "value": 1.0 },
-    { "hue": 119.331474, "saturation": 1.0, "value": 1.0 }
-  ]
+   "colors": [
+      { "hue": -64.69388, "saturation": 1.0, "value": 1.0 },
+      { "hue": 119.331474, "saturation": 1.0, "value": 1.0 }
+   ],
+   "patterns": {
+      "waiting_for_pairing": {
+         "type": "blink",
+         "duration_ms": 1000,
+         "period_ms": 200,
+         "dc": 0.5
+      }
+   }
 }
 ```
 
-When teams are created without an explicit color, the first unused color from the colors set is assigned automatically. Once the colors set is exhausted, the default color will be white.
+When teams are created without an explicit color, the first unused color from the colors set is assigned automatically (falling back to white if every entry is already taken). Buzzer patterns follow the same principle: any preset omitted from the config falls back to the built-in defaults shown above. To force a fixed color, add an optional `"static_color": { "hue": ..., "saturation": ..., "value": ... }` property next to the timing fields.
+
+### Pattern presets and types
+
+You can override the following pattern templates in the `patterns` section:
+
+- `waiting_for_pairing`
+- `standby`
+- `playing`
+- `answering`
+- `waiting`
+
+Each entry accepts:
+
+- `type`: one of `"blink"`, `"wave"`, or `"off"`.
+- `duration_ms`: duration before the effect stops (`0` = infinite).
+- `period_ms`: full cycle length in milliseconds (for blink/wave).
+- `dc`: duty cycle between `0.0` and `1.0`.
+- `static_color` (optional): HSV object overriding the team colour for this pattern.
 
 ## Architecture Overview
 

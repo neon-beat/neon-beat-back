@@ -100,5 +100,34 @@
       "saturation": 0.6,
       "value": 1.0
     }
-  ]
+  ],
+  "patterns": {
+    "waiting_for_pairing": {
+      "type": "blink",
+      "duration_ms": 1000,
+      "period_ms": 200,
+      "dc": 0.5
+    },
+    "standby": {
+      "type": "wave",
+      "duration_ms": 0,
+      "period_ms": 5000,
+      "dc": 0.2
+    },
+    "playing": {
+      "type": "wave",
+      "duration_ms": 0,
+      "period_ms": 3000,
+      "dc": 0.5
+    },
+    "answering": {
+      "type": "blink",
+      "duration_ms": 0,
+      "period_ms": 500,
+      "dc": 0.5
+    },
+    "waiting": {
+      "type": "off"
+    }
+  }
 }

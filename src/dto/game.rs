@@ -7,8 +7,8 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
-    dto::format_system_time,
-    state::game::{GameSession, Playlist, PointField, Song, Team, TeamColor},
+    dto::{common::TeamColorDto, format_system_time},
+    state::game::{GameSession, Playlist, PointField, Song, Team},
 };
 
 /// Payload used to bootstrap a brand-new game instance.
@@ -78,13 +78,7 @@ pub struct GameSummary {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
-pub struct TeamColorDto {
-    pub h: f32,
-    pub s: f32,
-    pub v: f32,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+/// Public projection of a team exposed to REST/SSE clients.
 pub struct TeamSummary {
     pub id: Uuid,
     pub buzzer_id: Option<String>,
@@ -147,26 +141,6 @@ impl From<(Uuid, Team)> for TeamSummary {
             name: team.name,
             score: team.score,
             color: team.color.into(),
-        }
-    }
-}
-
-impl From<TeamColor> for TeamColorDto {
-    fn from(color: TeamColor) -> Self {
-        Self {
-            h: color.h,
-            s: color.s,
-            v: color.v,
-        }
-    }
-}
-
-impl From<TeamColorDto> for TeamColor {
-    fn from(color: TeamColorDto) -> Self {
-        Self {
-            h: color.h,
-            s: color.s,
-            v: color.v,
         }
     }
 }
