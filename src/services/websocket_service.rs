@@ -18,7 +18,7 @@ use crate::{
     },
     state::{
         BuzzerConnection, SharedState,
-        game::Team,
+        game::{Team, TeamColor},
         state_machine::{GameEvent, GamePhase, GameRunningPhase, PauseKind, PrepStatus},
         transitions::run_transition_with_broadcast,
     },
@@ -218,6 +218,7 @@ async fn handle_prep_ready_buzz(state: &SharedState, buzzer_id: &str) -> Result<
                     buzzer_id: Some(buzzer_id.to_string()),
                     name: format!("Team {}", game.teams.len() + 1),
                     score: 0,
+                    color: TeamColor::default(),
                 };
 
                 let summary = TeamSummary::from((team_id, new_team.clone()));

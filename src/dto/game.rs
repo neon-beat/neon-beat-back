@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::{
     dto::format_system_time,
-    state::game::{GameSession, Playlist, PointField, Song, Team},
+    state::game::{GameSession, Playlist, PointField, Song, Team, TeamColor},
 };
 
 /// Payload used to bootstrap a brand-new game instance.
@@ -22,8 +22,19 @@ pub struct CreateGameWithPlaylistRequest {
 /// Incoming team definition for the game bootstrap.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct TeamInput {
-    pub buzzer_id: Option<String>,
     pub name: String,
+    /// If not specified, does not change it (or lets the back use the default value).
+    /// If null is specified, removes the buzzer ID.
+    /// If a string is specified, sets the buzzer ID to this string.
+    #[serde(default)]
+    #[schema(value_type = Option<String>)]
+    pub buzzer_id: Option<Option<String>>,
+    #[serde(default)]
+    #[schema(value_type = i32)]
+    pub score: Option<i32>,
+    #[serde(default)]
+    #[schema(value_type = TeamColorDto)]
+    pub color: Option<TeamColorDto>,
 }
 
 /// Playlist metadata and songs supplied when bootstrapping a game.
@@ -64,12 +75,20 @@ pub struct GameSummary {
     pub current_song_index: Option<usize>,
 }
 
-#[derive(Clone, Debug, Serialize, ToSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct TeamColorDto {
+    pub h: f32,
+    pub s: f32,
+    pub v: f32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct TeamSummary {
     pub id: Uuid,
     pub buzzer_id: Option<String>,
     pub name: String,
     pub score: i32,
+    pub color: TeamColorDto,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -125,6 +144,27 @@ impl From<(Uuid, Team)> for TeamSummary {
             buzzer_id: team.buzzer_id,
             name: team.name,
             score: team.score,
+            color: team.color.into(),
+        }
+    }
+}
+
+impl From<TeamColor> for TeamColorDto {
+    fn from(color: TeamColor) -> Self {
+        Self {
+            h: color.h,
+            s: color.s,
+            v: color.v,
+        }
+    }
+}
+
+impl From<TeamColorDto> for TeamColor {
+    fn from(color: TeamColorDto) -> Self {
+        Self {
+            h: color.h,
+            s: color.s,
+            v: color.v,
         }
     }
 }
