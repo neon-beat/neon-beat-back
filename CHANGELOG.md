@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.5.5] - Add a color for teams (defaults to white for now) & update REST requests for teams
+
+- Add color for teams (defaults to white for now)
+- Update teams attribute for `POST /admin/games` and `POST /admin/games/with-playlist` and request body for `POST /admin/teams` and `PUT /admin/teams/{id}` (common now):
+   - buzzer_id: optional ; if null is specified, removes the buzzer ID ; if a string is specified, sets the buzzer ID to this string.
+   - color: optional ; if a color is specified, sets the team's color.
+   - name: required
+   - score: optional ; if a score is specified, sets the team's score.
+
 ## [v0.5.4] - Add an outer helper tool to generate colors
 
 - Add an outer helper tool to generate colors
