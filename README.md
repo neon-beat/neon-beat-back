@@ -23,6 +23,26 @@ The repository contains a small helper binary that generates curated color asset
 
 The command writes both HTML grids and JSON files in that directory and prints the exact paths once generation completes.
 
+## Configuration
+
+Team colors (and future runtime knobs) are read from a JSON file at startup:
+
+- Default location: `config/app.json`
+- Override: set the `NEON_BEAT_BACK_CONFIG_PATH` environment variable to point at any JSON file
+
+If the file is absent or malformed the backend continues with the built-in colors set so you can run the server without creating a config file. To customise colors, drop a file with the following shape:
+
+```json
+{
+  "colors": [
+    { "hue": -64.69388, "saturation": 1.0, "value": 1.0 },
+    { "hue": 119.331474, "saturation": 1.0, "value": 1.0 }
+  ]
+}
+```
+
+When teams are created without an explicit color, the first unused color from the colors set is assigned automatically. Once the colors set is exhausted, the default color will be white.
+
 ## Architecture Overview
 
 ### Module layout
@@ -476,7 +496,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Fix bug: a buzz of an unpaired buzzer during PrepReady makes the game broken
 - [x] Send the team who buzzed in the GET phase route and the SSE event
 - [x] When entering in the Reveal phase, save the information (in order to know it if we restart the session)
-- [ ] Define color for teams (HSV) -> split the spectrum in 20 hues
+- [x] Define color for teams (HSV) -> split the spectrum in 20 hues
 - [ ] Send pattern to WS
 - [ ] On a buzzer reconnexion, send back its pattern
 - [ ] If a buzzer enters inhibited mode, send the information to SSE streams (public & admin)

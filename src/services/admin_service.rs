@@ -28,7 +28,7 @@ use crate::{
     },
     state::{
         SharedState,
-        game::{GameSession, PointField, Team},
+        game::{GameSession, PointField},
         state_machine::{
             FinishReason, GameEvent, GamePhase, GameRunningPhase, PairingSession, PauseKind,
             PrepStatus,
@@ -576,7 +576,8 @@ pub async fn adjust_score(
     Ok(ScoreUpdateResponse { team_id, score })
 }
 
-/// Create a new team during the prep phase.
+/// Create a new team during the prep phase, automatically assigning an unused color from colors set when
+/// one is not provided.
 pub async fn create_team(
     state: &SharedState,
     request: CreateTeamRequest,
@@ -592,7 +593,7 @@ pub async fn create_team(
         name,
         buzzer_id: buzzer_input,
         score,
-        color,
+        color: color_input,
     }) = request;
 
     if name.trim().is_empty() {
@@ -602,22 +603,20 @@ pub async fn create_team(
     }
 
     let buzzer_id = sanitize_optional_buzzer(buzzer_input.unwrap_or_default())?;
+    let config = state.config();
 
     let summary = state
         .with_current_game_mut(move |game| {
             if let Some(ref buzzer) = buzzer_id {
                 assert_unique_buzzer(game, None, buzzer)?;
             }
-
-            let team_id = Uuid::new_v4();
-            let team = Team {
+            let (team_id, team) = game.add_team(
+                config.as_ref(),
+                Some(name),
                 buzzer_id,
-                name,
-                score: score.unwrap_or(0),
-                color: color.map(Into::into).unwrap_or_default(),
-            };
-
-            game.teams.insert(team_id, team.clone());
+                score,
+                color_input.map(Into::into),
+            );
             Ok(TeamSummary::from((team_id, team)))
         })
         .await?;
