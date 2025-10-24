@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.5.6] - Add config (colors set for now) for app & use colors set to give color to teams at creation
+
+- Add a config (JSON file + Rust struct) for the app, containing only the colors set for now. The config file location is `config/app.json` by default, but can set by the `NEON_BEAT_BACK_CONFIG_PATH` environment variable. If the file is absent or malformed the backend continues with the built-in colors set.
+- When teams are created without an explicit color, the first unused color from the colors set is assigned automatically.
+- Replace some `unwrap_or` by `unwrap_or_else` or `match` (lazy evaluation instead of leager avaluation).
+
 ## [v0.5.5] - Add a color for teams (defaults to white for now) & update REST requests for teams
 
 - Add color for teams (defaults to white for now)
