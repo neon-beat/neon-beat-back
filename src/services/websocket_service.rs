@@ -10,7 +10,7 @@ use crate::{
     config::BuzzerPatternPreset,
     dto::{
         game::TeamSummary,
-        ws::{BuzzFeedback, BuzzerAck, BuzzerInboundMessage, BuzzerOutboundMessage},
+        ws::{BuzzerInboundMessage, BuzzerOutboundMessage},
     },
     error::ServiceError,
     services::{
@@ -101,13 +101,6 @@ pub async fn handle_socket(state: SharedState, socket: WebSocket) {
 
     send_message_to_websocket(
         &outbound_tx,
-        &BuzzerAck {
-            id: buzzer_id.clone(),
-            status: "ready".to_string(),
-        },
-    );
-    send_message_to_websocket(
-        &outbound_tx,
         &BuzzerOutboundMessage {
             pattern: state.buzzer_pattern(BuzzerPatternPreset::WaitingForPairing),
         },
@@ -127,15 +120,12 @@ pub async fn handle_socket(state: SharedState, socket: WebSocket) {
                                 "Buzz ignored: mismatched ID (expected {buzzer_id}, got {id})"
                             )))
                         };
-
-                        let can_answer = res.is_ok();
                         if let Err(err) = res {
                             warn!(
                                 error = %err,
                                 "Error while handling buzz (form ID {id})",
                             );
                         };
-                        send_message_to_websocket(&outbound_tx, &BuzzFeedback { id, can_answer });
                     }
                     Ok(BuzzerInboundMessage::Identification { .. }) => {
                         warn!(id = %buzzer_id, "ignoring duplicate identification message");

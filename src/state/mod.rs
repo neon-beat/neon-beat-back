@@ -13,7 +13,7 @@ use crate::{
         common::{GamePhaseSnapshot, SongSnapshot},
         game::TeamSummary,
         phase::VisibleGamePhase,
-        ws::{BuzzFeedback, BuzzerPattern},
+        ws::BuzzerPattern,
     },
     error::ServiceError,
     state::{
@@ -414,23 +414,6 @@ impl AppState {
                 Err(err)
             }
         }
-    }
-
-    pub fn notify_buzzer_turn_finished(&self, buzzer_id: &str) {
-        let Some(connection) = self.buzzers.get(buzzer_id) else {
-            return;
-        };
-
-        let tx = connection.tx.clone();
-        drop(connection);
-
-        send_message_to_websocket(
-            &tx,
-            &BuzzFeedback {
-                id: buzzer_id.into(),
-                can_answer: false,
-            },
-        );
     }
 }
 

@@ -320,11 +320,6 @@ pub async fn pause_game(state: &SharedState) -> Result<ActionResponse, ServiceEr
 pub async fn resume_game(state: &SharedState) -> Result<ActionResponse, ServiceError> {
     let result =
         run_transition_with_broadcast(state, GameEvent::ContinuePlaying, move || async move {
-            if let GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { id })) =
-                state.state_machine_phase().await
-            {
-                state.notify_buzzer_turn_finished(&id)
-            };
             Ok(ActionResponse {
                 message: "resumed".into(),
             })
@@ -351,12 +346,6 @@ pub async fn resume_game(state: &SharedState) -> Result<ActionResponse, ServiceE
 /// Reveal the current song and conclude any outstanding buzz sequence.
 pub async fn reveal(state: &SharedState) -> Result<ActionResponse, ServiceError> {
     let result = run_transition_with_broadcast(state, GameEvent::Reveal, move || async move {
-        if let GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { id })) =
-            state.state_machine_phase().await
-        {
-            state.notify_buzzer_turn_finished(&id)
-        };
-
         state
             .with_current_game_mut(|game| {
                 game.current_song_found = true;

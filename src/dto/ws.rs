@@ -25,20 +25,6 @@ impl BuzzerInboundMessage {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
-/// Positive acknowledgement sent to a buzzer after successful identification.
-pub struct BuzzerAck {
-    pub id: String,
-    pub status: String,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-/// Feedback sent to a buzzer after it triggers a buzz event.
-pub struct BuzzFeedback {
-    pub id: String,
-    pub can_answer: bool,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
 /// Message emitted by the backend to drive LED patterns on a buzzer device.
 pub struct BuzzerOutboundMessage {
     /// Visual pattern to display on the target buzzer.
