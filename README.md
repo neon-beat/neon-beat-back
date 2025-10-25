@@ -275,7 +275,7 @@ The buzzer pairing workflow lives inside the finite state machine so that API ca
    - The WebSocket client sends `{ "type": "buzz", "id": "<12-char buzzer id>" }`.
    - The backend:
      - Assigns the buzzer while clearing any conflicting assignment.
-     - Replies to the device with a `BuzzFeedback` payload (`{"id":"<buzzer id>","can_answer":true}`) so hardware can give immediate confirmation.
+     - Replies to the device with a `BuzzerOutboundMessage` payload so hardware can give immediate confirmation.
      - Emits `pairing.assigned` containing the team UUID and the new buzzer ID.  
      - Emits another `pairing.waiting` if more unpaired teams remain; otherwise it transitions back to `prep_ready`.
 
@@ -302,10 +302,8 @@ Buzzers maintain a single long-lived WebSocket connection. Each device **must** 
 | Direction | Message type | Payload example | Notes |
 |-----------|--------------|-----------------|-------|
 | client → server | `{"type":"identification","id":"deadbeef0001"}` | 12 lowercase hex characters | Required immediately after connecting. |
-| server → client | `{"id":"deadbeef0001","status":"ready"}` (`BuzzerAck`) | – | Sent when identification succeeds. |
 | client → server | `{"type":"buzz","id":"deadbeef0001"}` | must reuse the identification id | Ignored unless the game is in `prep_ready`, `prep_pairing`, or `playing`. |
-| server → client | `{"id":"deadbeef0001","can_answer":true}` (`BuzzFeedback`) | `can_answer` becomes `true` during pairing when the team was expected, and during gameplay when the buzz grants the floor. |
-| server → client | `{"id":"deadbeef0001","can_answer":false}` (`BuzzFeedback`) | – | Returned when the buzz was rejected (wrong phase, duplicate during pairing, etc.). |
+| server → client | `{"pattern":{"type":"blink","details":{"duration_ms":1000,"period_ms":200,"dc":0.5,"color":{"h":125.0,"s":1.0,"v":1.0}}}}` (`BuzzerOutboundMessage`) | – | Sent when identification succeeds and whenever the buzzer has to change its pattern (type can be `blink`, `wave` or `off`). |
 | server → client | WebSocket close frame | – | Connection closed by the backend (e.g. admin kicked, duplicate connection); client should retry with exponential backoff. |
 
 Messages tagged with any other `type` are ignored.
@@ -523,7 +521,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Send the team who buzzed in the GET phase route and the SSE event
 - [x] When entering in the Reveal phase, save the information (in order to know it if we restart the session)
 - [x] Define color for teams (HSV) -> split the spectrum in 20 hues
-- [ ] Send pattern to WS
+- [x] Send pattern to WS
 - [ ] On a buzzer reconnexion, send back its pattern
 - [ ] If a buzzer enters inhibited mode, send the information to SSE streams (public & admin)
 - [ ] Better management for panics & expects
