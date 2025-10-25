@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.6.0] - Send patterns to buzzers through BuzzerOutboundMessage
+
+- Add a `BuzzerOutboundMessage` for sending patterns to the WebSocket clients
+- Add defaults patterns for the "buzzer phases": WaitingForPairing, Standby, Playing, Waiting and Answering
+- Add an entry in the config to override any pattern (for a "buzzer phase")
+- Remove unused `BuzzerAck` and `BuzzFeedback` WebSocket messages
+
 ## [v0.5.6] - Add config (colors set for now) for app & use colors set to give color to teams at creation
 
 - Add a config (JSON file + Rust struct) for the app, containing only the colors set for now. The config file location is `config/app.json` by default, but can set by the `NEON_BEAT_BACK_CONFIG_PATH` environment variable. If the file is absent or malformed the backend continues with the built-in colors set.
