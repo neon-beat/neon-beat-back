@@ -203,7 +203,16 @@ pub fn send_pattern_to_team_buzzer(
     let buzzer_id = team.buzzer_id.as_ref().ok_or_else(|| {
         ServiceError::InvalidState(format!("team `{team_id}` has no paired buzzer"))
     })?;
+    send_pattern_to_buzzer(state, buzzer_id, preset, message_type)
+}
 
+/// Send a pattern update to a buzzer.
+pub fn send_pattern_to_buzzer(
+    state: &SharedState,
+    buzzer_id: &String,
+    preset: BuzzerPatternPreset,
+    message_type: &str,
+) -> Result<(), ServiceError> {
     let tx = state
         .buzzers()
         .get(buzzer_id)
@@ -371,14 +380,36 @@ async fn handle_playing_buzz(state: &SharedState, buzzer_id: &str) -> Result<(),
         )));
     }
 
-    run_transition_with_broadcast(
+    let result = run_transition_with_broadcast(
         state,
         GameEvent::Pause(PauseKind::Buzz {
             id: buzzer_id.into(),
         }),
         move || async move { Ok(()) },
     )
-    .await
+    .await?;
+    state
+        .with_current_game(|game| {
+            game.teams
+                .iter()
+                .map(|(team_id, team)| {
+                    let team_buzzer_id = team.buzzer_id.as_ref().ok_or_else(|| {
+                        ServiceError::InvalidState(format!("team `{team_id}` has no paired buzzer"))
+                    })?;
+                    let (preset, message_type) = if team_buzzer_id == buzzer_id {
+                        (
+                            BuzzerPatternPreset::Answering(team.color.clone()),
+                            "answering",
+                        )
+                    } else {
+                        (BuzzerPatternPreset::Waiting, "playing")
+                    };
+                    send_pattern_to_buzzer(state, team_buzzer_id, preset, message_type)
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .await?;
+    Ok(result)
 }
 
 /// Ensure the writer task winds down before we return from the socket handler.
