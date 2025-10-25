@@ -430,7 +430,6 @@ impl AppState {
                 id: buzzer_id.into(),
                 can_answer: false,
             },
-            "buzzer turn ended",
         );
     }
 }

@@ -105,14 +105,12 @@ pub async fn handle_socket(state: SharedState, socket: WebSocket) {
             id: buzzer_id.clone(),
             status: "ready".to_string(),
         },
-        "buzzer ack",
     );
     send_message_to_websocket(
         &outbound_tx,
         &BuzzerOutboundMessage {
             pattern: state.buzzer_pattern(BuzzerPatternPreset::WaitingForPairing),
         },
-        "waiting for pairing",
     );
 
     while let Some(message) = receiver.next().await {
@@ -137,11 +135,7 @@ pub async fn handle_socket(state: SharedState, socket: WebSocket) {
                                 "Error while handling buzz (form ID {id})",
                             );
                         };
-                        send_message_to_websocket(
-                            &outbound_tx,
-                            &BuzzFeedback { id, can_answer },
-                            "buzzer feedback",
-                        );
+                        send_message_to_websocket(&outbound_tx, &BuzzFeedback { id, can_answer });
                     }
                     Ok(BuzzerInboundMessage::Identification { .. }) => {
                         warn!(id = %buzzer_id, "ignoring duplicate identification message");
@@ -175,20 +169,17 @@ pub async fn handle_socket(state: SharedState, socket: WebSocket) {
 }
 
 /// Serialize a payload and push it onto the provided WebSocket sender, logging failures.
-pub fn send_message_to_websocket<T>(
-    tx: &mpsc::UnboundedSender<Message>,
-    value: &T,
-    message_type: &str,
-) where
-    T: ?Sized + serde::Serialize,
+pub fn send_message_to_websocket<T>(tx: &mpsc::UnboundedSender<Message>, value: &T)
+where
+    T: ?Sized + serde::Serialize + std::fmt::Debug,
 {
     match serde_json::to_string(value) {
         Ok(payload) => {
             if tx.send(Message::Text(payload.into())).is_err() {
-                warn!("websocket writer closed while sending {message_type}");
+                warn!("websocket writer closed while sending message `{value:?}`");
             }
         }
-        Err(err) => warn!(error = %err, "failed to serialize {message_type}"),
+        Err(err) => warn!(error = %err, "failed to serialize the message `{value:?}`"),
     }
 }
 
@@ -198,12 +189,11 @@ pub fn send_pattern_to_team_buzzer(
     team_id: &Uuid,
     team: &Team,
     preset: BuzzerPatternPreset,
-    message_type: &str,
 ) -> Result<(), ServiceError> {
     let buzzer_id = team.buzzer_id.as_ref().ok_or_else(|| {
         ServiceError::InvalidState(format!("team `{team_id}` has no paired buzzer"))
     })?;
-    send_pattern_to_buzzer(state, buzzer_id, preset, message_type)
+    send_pattern_to_buzzer(state, buzzer_id, preset)
 }
 
 /// Send a pattern update to a buzzer.
@@ -211,7 +201,6 @@ pub fn send_pattern_to_buzzer(
     state: &SharedState,
     buzzer_id: &String,
     preset: BuzzerPatternPreset,
-    message_type: &str,
 ) -> Result<(), ServiceError> {
     let tx = state
         .buzzers()
@@ -227,7 +216,6 @@ pub fn send_pattern_to_buzzer(
         &BuzzerOutboundMessage {
             pattern: state.buzzer_pattern(preset),
         },
-        message_type,
     );
 
     Ok(())
@@ -284,7 +272,6 @@ async fn handle_prep_ready_buzz(
                         pattern: state
                             .buzzer_pattern(BuzzerPatternPreset::Standby(new_team.color.clone())),
                     },
-                    "standby",
                 );
                 Ok(Some(TeamSummary::from((team_id, new_team))))
             } else {
@@ -338,7 +325,6 @@ async fn handle_prep_pairing_buzz(
         &BuzzerOutboundMessage {
             pattern: state.buzzer_pattern(BuzzerPatternPreset::Standby(team_color)),
         },
-        "standby",
     );
 
     let pairing_progress =
@@ -380,7 +366,7 @@ async fn handle_playing_buzz(state: &SharedState, buzzer_id: &str) -> Result<(),
         )));
     }
 
-    let result = run_transition_with_broadcast(
+    run_transition_with_broadcast(
         state,
         GameEvent::Pause(PauseKind::Buzz {
             id: buzzer_id.into(),
@@ -396,20 +382,17 @@ async fn handle_playing_buzz(state: &SharedState, buzzer_id: &str) -> Result<(),
                     let team_buzzer_id = team.buzzer_id.as_ref().ok_or_else(|| {
                         ServiceError::InvalidState(format!("team `{team_id}` has no paired buzzer"))
                     })?;
-                    let (preset, message_type) = if team_buzzer_id == buzzer_id {
-                        (
-                            BuzzerPatternPreset::Answering(team.color.clone()),
-                            "answering",
-                        )
+                    let preset = if team_buzzer_id == buzzer_id {
+                        BuzzerPatternPreset::Answering(team.color.clone())
                     } else {
-                        (BuzzerPatternPreset::Waiting, "playing")
+                        BuzzerPatternPreset::Waiting
                     };
-                    send_pattern_to_buzzer(state, team_buzzer_id, preset, message_type)
+                    send_pattern_to_buzzer(state, team_buzzer_id, preset)
                 })
                 .collect::<Result<Vec<_>, _>>()
         })
         .await?;
-    Ok(result)
+    Ok(())
 }
 
 /// Ensure the writer task winds down before we return from the socket handler.

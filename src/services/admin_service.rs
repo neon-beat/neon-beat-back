@@ -308,13 +308,7 @@ pub async fn pause_game(state: &SharedState) -> Result<ActionResponse, ServiceEr
             game.teams
                 .iter()
                 .map(|(team_id, team)| {
-                    send_pattern_to_team_buzzer(
-                        state,
-                        team_id,
-                        team,
-                        BuzzerPatternPreset::Waiting,
-                        "waiting",
-                    )
+                    send_pattern_to_team_buzzer(state, team_id, team, BuzzerPatternPreset::Waiting)
                 })
                 .collect::<Result<Vec<_>, _>>()
         })
@@ -346,7 +340,6 @@ pub async fn resume_game(state: &SharedState) -> Result<ActionResponse, ServiceE
                         team_id,
                         team,
                         BuzzerPatternPreset::Playing(team.color.clone()),
-                        "playing",
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()
@@ -389,7 +382,6 @@ pub async fn reveal(state: &SharedState) -> Result<ActionResponse, ServiceError>
                         team_id,
                         team,
                         BuzzerPatternPreset::Standby(team.color.clone()),
-                        "standby",
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()
@@ -429,12 +421,10 @@ async fn load_next_song(
             + 1;
         if next_song_index < playlist_length {
             Some(next_song_index)
+        } else if start {
+            Some(0) // "New Game +" if playlist was completed in the previous session
         } else {
-            if start {
-                Some(0) // "New Game +" if playlist was completed in the previous session
-            } else {
-                None
-            }
+            None
         }
     };
     let event = if start {
@@ -482,7 +472,6 @@ async fn load_next_song(
                             team_id,
                             team,
                             BuzzerPatternPreset::Playing(team.color.clone()),
-                            "playing",
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()
@@ -535,7 +524,6 @@ pub async fn end_game(state: &SharedState) -> Result<ActionResponse, ServiceErro
             &BuzzerOutboundMessage {
                 pattern: state.buzzer_pattern(BuzzerPatternPreset::WaitingForPairing),
             },
-            "waiting for pairing",
         );
     });
     Ok(response)
