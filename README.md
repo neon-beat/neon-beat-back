@@ -25,23 +25,49 @@ The command writes both HTML grids and JSON files in that directory and prints t
 
 ## Configuration
 
-Team colors (and future runtime knobs) are read from a JSON file at startup:
+Team colors and buzzer patterns (and future runtime knobs) are read from a JSON file at startup:
 
 - Default location: `config/app.json`
 - Override: set the `NEON_BEAT_BACK_CONFIG_PATH` environment variable to point at any JSON file
 
-If the file is absent or malformed the backend continues with the built-in colors set so you can run the server without creating a config file. To customise colors, drop a file with the following shape:
+If the file is absent or malformed the backend continues with the built-in defaults so you can run the server without creating a config file. To customise values, drop a file with the following shape:
 
 ```json
 {
-  "colors": [
-    { "hue": -64.69388, "saturation": 1.0, "value": 1.0 },
-    { "hue": 119.331474, "saturation": 1.0, "value": 1.0 }
-  ]
+   "colors": [
+      { "hue": -64.69388, "saturation": 1.0, "value": 1.0 },
+      { "hue": 119.331474, "saturation": 1.0, "value": 1.0 }
+   ],
+   "patterns": {
+      "waiting_for_pairing": {
+         "type": "blink",
+         "duration_ms": 1000,
+         "period_ms": 200,
+         "dc": 0.5
+      }
+   }
 }
 ```
 
-When teams are created without an explicit color, the first unused color from the colors set is assigned automatically. Once the colors set is exhausted, the default color will be white.
+When teams are created without an explicit color, the first unused color from the colors set is assigned automatically (falling back to white if every entry is already taken). Buzzer patterns follow the same principle: any preset omitted from the config falls back to the built-in defaults shown above. To force a fixed color, add an optional `"static_color": { "hue": ..., "saturation": ..., "value": ... }` property next to the timing fields.
+
+### Pattern presets and types
+
+You can override the following pattern templates in the `patterns` section:
+
+- `waiting_for_pairing`
+- `standby`
+- `playing`
+- `answering`
+- `waiting`
+
+Each entry accepts:
+
+- `type`: one of `"blink"`, `"wave"`, or `"off"`.
+- `duration_ms`: duration before the effect stops (`0` = infinite).
+- `period_ms`: full cycle length in milliseconds (for blink/wave).
+- `dc`: duty cycle between `0.0` and `1.0`.
+- `static_color` (optional): HSV object overriding the team colour for this pattern.
 
 ## Architecture Overview
 
@@ -249,7 +275,7 @@ The buzzer pairing workflow lives inside the finite state machine so that API ca
    - The WebSocket client sends `{ "type": "buzz", "id": "<12-char buzzer id>" }`.
    - The backend:
      - Assigns the buzzer while clearing any conflicting assignment.
-     - Replies to the device with a `BuzzFeedback` payload (`{"id":"<buzzer id>","can_answer":true}`) so hardware can give immediate confirmation.
+     - Replies to the device with a `BuzzerOutboundMessage` payload so hardware can give immediate confirmation.
      - Emits `pairing.assigned` containing the team UUID and the new buzzer ID.  
      - Emits another `pairing.waiting` if more unpaired teams remain; otherwise it transitions back to `prep_ready`.
 
@@ -276,13 +302,135 @@ Buzzers maintain a single long-lived WebSocket connection. Each device **must** 
 | Direction | Message type | Payload example | Notes |
 |-----------|--------------|-----------------|-------|
 | client → server | `{"type":"identification","id":"deadbeef0001"}` | 12 lowercase hex characters | Required immediately after connecting. |
-| server → client | `{"id":"deadbeef0001","status":"ready"}` (`BuzzerAck`) | – | Sent when identification succeeds. |
 | client → server | `{"type":"buzz","id":"deadbeef0001"}` | must reuse the identification id | Ignored unless the game is in `prep_ready`, `prep_pairing`, or `playing`. |
-| server → client | `{"id":"deadbeef0001","can_answer":true}` (`BuzzFeedback`) | `can_answer` becomes `true` during pairing when the team was expected, and during gameplay when the buzz grants the floor. |
-| server → client | `{"id":"deadbeef0001","can_answer":false}` (`BuzzFeedback`) | – | Returned when the buzz was rejected (wrong phase, duplicate during pairing, etc.). |
+| server → client | `{"pattern":{"type":"blink","details":{"duration_ms":1000,"period_ms":200,"dc":0.5,"color":{"h":125.0,"s":1.0,"v":1.0}}}}` (`BuzzerOutboundMessage`) | – | Sent when identification succeeds and whenever the buzzer has to change its pattern (type can be `blink`, `wave` or `off`). |
 | server → client | WebSocket close frame | – | Connection closed by the backend (e.g. admin kicked, duplicate connection); client should retry with exponential backoff. |
 
 Messages tagged with any other `type` are ignored.
+
+More details on the JSON messages exchanged with buzzer devices
+------------------------------------------------------------
+
+The WebSocket endpoint is intentionally simple: buzzer devices send two kinds of messages (identification and buzz) and the server sends pattern updates that instruct the buzzer firmware how to display LED effects. All messages are JSON text frames.
+
+1) Inbound messages (device → server)
+
+- Identification (must be the first message after opening the socket)
+
+   JSON schema:
+
+   {
+      "type": "identification",
+      "id": "<12-lower-hex>"
+   }
+
+   Example:
+
+   {
+      "type": "identification",
+      "id": "deadbeef0001"
+   }
+
+   Notes:
+   - The `id` must be a 12-character lowercase hexadecimal string (no separators). The server enforces this and will close the connection if the id is invalid or missing.
+   - The server waits up to 10 seconds for this first message and will drop the connection on timeout.
+
+- Buzz
+
+   JSON schema:
+
+   {
+      "type": "buzz",
+      "id": "<same-id-as-identification>"
+   }
+
+   Example:
+
+   {
+      "type": "buzz",
+      "id": "deadbeef0001"
+   }
+
+   Notes:
+   - The `id` must match the id previously provided in the identification message. Buzzes with a mismatched id are ignored.
+   - Buzz events are processed only when the game is in a phase where buzzes are meaningful (prep-ready, pairing, or playing). Other phases result in the buzz being ignored.
+
+2) Outbound messages (server → device)
+
+The server uses a single outbound message type, `BuzzerOutboundMessage`, which instructs the buzzer firmware to update its visual pattern. The JSON is a single object with a `pattern` field; that field is a tagged enum describing one of three pattern kinds: `blink`, `wave`, or `off`.
+
+JSON shape (high level):
+
+{
+   "pattern": {
+      "type": "blink" | "wave" | "off",
+      "details": { /* present for blink/wave */ }
+   }
+}
+
+Detailed fields
+- `pattern.type` — string: one of `"blink"`, `"wave"`, or `"off"`.
+- `pattern.details` — object (only present for `blink` and `wave`):
+   - `duration_ms`: integer, effect duration in milliseconds (`0` = infinite)
+   - `period_ms`: integer, period of one cycle in milliseconds
+   - `dc`: float, duty-cycle between `0.0` and `1.0`
+   - `color`: HSV object `{ "h": float, "s": float, "v": float }` where `h` is hue, `s` is saturation and `v` is value/brightness.
+
+Examples
+
+- Blink pattern example (waiting for pairing):
+
+   {
+      "pattern": {
+         "type": "blink",
+         "details": {
+            "duration_ms": 1000,
+            "period_ms": 200,
+            "dc": 0.5,
+            "color": { "h": 125.0, "s": 1.0, "v": 1.0 }
+         }
+      }
+   }
+
+- Wave pattern example (team standby):
+
+   {
+      "pattern": {
+         "type": "wave",
+         "details": {
+            "duration_ms": 0,
+            "period_ms": 5000,
+            "dc": 0.2,
+            "color": { "h": 30.0, "s": 1.0, "v": 1.0 }
+         }
+      }
+   }
+
+- Off pattern example:
+
+   {
+      "pattern": { "type": "off" }
+   }
+
+When these messages are sent
+- Immediately after a successful identification the server responds with a `BuzzerOutboundMessage` representing the current pattern the device should show. This gives immediate feedback to the user that the device is connected and recognised.
+- During pairing the server sends a `Standby`/`WaitingForPairing` pattern to newly assigned buzzers and may switch other buzzers to `Off` or `Waiting` presets as required.
+- During normal gameplay the server pushes `Playing`, `Answering`, and `Waiting` presets to devices so the firmware can reflect whether a team is active, answering, or idle.
+
+Device behaviour expectations
+- On receiving a `pattern` object the device should apply the visual effect immediately and keep it for `duration_ms` (or until a new pattern arrives). If `duration_ms` is `0` the effect is indefinite until overridden.
+- The device should treat any invalid JSON frame as ignorable and close the socket if the server sends a close frame.
+- On unexpected disconnection, buzzer firmware should attempt to reconnect with exponential backoff.
+
+Pattern presets and the HSV colour object are derived from the application config; see `config/app.json` and `src/dto/ws.rs` for the exact `BuzzerPattern` shapes.
+
+Quick sequence example
+1. Device opens WebSocket to `/ws`.
+2. Device sends: `{ "type": "identification", "id": "deadbeef0001" }`.
+3. Server replies with current pattern: `{ "pattern": { "type": "blink", "details": { ... } } }`.
+4. When user presses buzzer, device sends: `{ "type": "buzz", "id": "deadbeef0001" }`.
+5. Server processes buzz and may reply with a new pattern (e.g. `answering`) and triggers SSE events so UIs update.
+
 
 ### Server-Sent Events
 
@@ -497,7 +645,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Send the team who buzzed in the GET phase route and the SSE event
 - [x] When entering in the Reveal phase, save the information (in order to know it if we restart the session)
 - [x] Define color for teams (HSV) -> split the spectrum in 20 hues
-- [ ] Send pattern to WS
+- [x] Send pattern to WS
 - [ ] On a buzzer reconnexion, send back its pattern
 - [ ] If a buzzer enters inhibited mode, send the information to SSE streams (public & admin)
 - [ ] Better management for panics & expects

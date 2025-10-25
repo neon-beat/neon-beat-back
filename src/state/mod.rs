@@ -7,13 +7,13 @@ use std::{sync::Arc, time::Duration};
 
 use crate::services::websocket_service::send_message_to_websocket;
 use crate::{
-    config::AppConfig,
+    config::{AppConfig, BuzzerPatternPreset},
     dao::game_store::GameStore,
     dto::{
         common::{GamePhaseSnapshot, SongSnapshot},
         game::TeamSummary,
         phase::VisibleGamePhase,
-        ws::BuzzFeedback,
+        ws::BuzzerPattern,
     },
     error::ServiceError,
     state::{
@@ -117,6 +117,14 @@ impl AppState {
     /// Access the immutable application configuration.
     pub fn config(&self) -> Arc<AppConfig> {
         Arc::clone(&self.config)
+    }
+
+    /// Retrieve a configured buzzer pattern to broadcast to devices.
+    ///
+    /// The provided `preset` carries the team color when the pattern needs to adopt a
+    /// team-specific hue (e.g. standby/playing/answering effects).
+    pub fn buzzer_pattern(&self, preset: BuzzerPatternPreset) -> BuzzerPattern {
+        self.config.buzzer_pattern(preset)
     }
 
     /// Current degraded flag.
@@ -406,24 +414,6 @@ impl AppState {
                 Err(err)
             }
         }
-    }
-
-    pub fn notify_buzzer_turn_finished(&self, buzzer_id: &str) {
-        let Some(connection) = self.buzzers.get(buzzer_id) else {
-            return;
-        };
-
-        let tx = connection.tx.clone();
-        drop(connection);
-
-        send_message_to_websocket(
-            &tx,
-            &BuzzFeedback {
-                id: buzzer_id.into(),
-                can_answer: false,
-            },
-            "buzzer turn ended",
-        );
     }
 }
 

@@ -43,7 +43,6 @@ use utoipa::OpenApi;
             crate::dto::common::SongSnapshot,
             crate::dto::health::HealthResponse,
             crate::dto::ws::BuzzerInboundMessage,
-            crate::dto::ws::BuzzerAck,
             crate::dto::game::CreateGameWithPlaylistRequest,
             crate::dto::game::TeamInput,
             crate::dto::game::PlaylistInput,

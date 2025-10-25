@@ -1,10 +1,10 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
     dto::{game::TeamSummary, phase::VisibleGamePhase},
-    state::game::{PointField, Song},
+    state::game::{PointField, Song, TeamColor},
 };
 
 /// Snapshot of a point field for DTO use.
@@ -84,4 +84,35 @@ pub struct GamePhaseSnapshot {
     /// Present during playing/reveal phases to expose bonus fields already found.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub found_bonus_fields: Option<Vec<String>>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, ToSchema)]
+/// HSV representation shared by DTOs (REST, SSE, WS).
+pub struct TeamColorDto {
+    /// Hue component (degrees).
+    pub h: f32,
+    /// Saturation component.
+    pub s: f32,
+    /// Value (brightness) component.
+    pub v: f32,
+}
+
+impl From<TeamColor> for TeamColorDto {
+    fn from(color: TeamColor) -> Self {
+        Self {
+            h: color.h,
+            s: color.s,
+            v: color.v,
+        }
+    }
+}
+
+impl From<TeamColorDto> for TeamColor {
+    fn from(color: TeamColorDto) -> Self {
+        Self {
+            h: color.h,
+            s: color.s,
+            v: color.v,
+        }
+    }
 }

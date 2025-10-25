@@ -8,6 +8,7 @@ use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::{
+    config::BuzzerPatternPreset,
     dto::{
         admin::{
             ActionResponse, AnswerValidationRequest, CreateGameRequest, CreateTeamRequest,
@@ -19,12 +20,14 @@ use crate::{
             CreateGameWithPlaylistRequest, GameSummary, PlaylistInput, PlaylistSummary,
             SongSummary, TeamInput, TeamSummary,
         },
+        ws::BuzzerOutboundMessage,
     },
     error::ServiceError,
     services::{
         game_service,
         pairing::{PairingSessionUpdate, apply_pairing_update, handle_pairing_progress},
         sse_events,
+        websocket_service::{send_message_to_websocket, send_pattern_to_team_buzzer},
     },
     state::{
         SharedState,
@@ -290,7 +293,7 @@ pub async fn start_game(
 
 /// Pause gameplay manually through the admin controls.
 pub async fn pause_game(state: &SharedState) -> Result<ActionResponse, ServiceError> {
-    run_transition_with_broadcast(
+    let result = run_transition_with_broadcast(
         state,
         GameEvent::Pause(PauseKind::Manual),
         move || async move {
@@ -299,33 +302,50 @@ pub async fn pause_game(state: &SharedState) -> Result<ActionResponse, ServiceEr
             })
         },
     )
-    .await
+    .await?;
+    state
+        .with_current_game(|game| {
+            game.teams
+                .iter()
+                .map(|(team_id, team)| {
+                    send_pattern_to_team_buzzer(state, team_id, team, BuzzerPatternPreset::Waiting)
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .await?;
+    Ok(result)
 }
 
 /// Resume gameplay when an admin clears a pause.
 pub async fn resume_game(state: &SharedState) -> Result<ActionResponse, ServiceError> {
-    run_transition_with_broadcast(state, GameEvent::ContinuePlaying, move || async move {
-        if let GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { id })) =
-            state.state_machine_phase().await
-        {
-            state.notify_buzzer_turn_finished(&id)
-        };
-        Ok(ActionResponse {
-            message: "resumed".into(),
+    let result =
+        run_transition_with_broadcast(state, GameEvent::ContinuePlaying, move || async move {
+            Ok(ActionResponse {
+                message: "resumed".into(),
+            })
         })
-    })
-    .await
+        .await?;
+    state
+        .with_current_game(|game| {
+            game.teams
+                .iter()
+                .map(|(team_id, team)| {
+                    send_pattern_to_team_buzzer(
+                        state,
+                        team_id,
+                        team,
+                        BuzzerPatternPreset::Playing(team.color.clone()),
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .await?;
+    Ok(result)
 }
 
 /// Reveal the current song and conclude any outstanding buzz sequence.
 pub async fn reveal(state: &SharedState) -> Result<ActionResponse, ServiceError> {
-    run_transition_with_broadcast(state, GameEvent::Reveal, move || async move {
-        if let GamePhase::GameRunning(GameRunningPhase::Paused(PauseKind::Buzz { id })) =
-            state.state_machine_phase().await
-        {
-            state.notify_buzzer_turn_finished(&id)
-        };
-
+    let result = run_transition_with_broadcast(state, GameEvent::Reveal, move || async move {
         state
             .with_current_game_mut(|game| {
                 game.current_song_found = true;
@@ -340,7 +360,23 @@ pub async fn reveal(state: &SharedState) -> Result<ActionResponse, ServiceError>
             message: "revealed".into(),
         })
     })
-    .await
+    .await?;
+    state
+        .with_current_game(|game| {
+            game.teams
+                .iter()
+                .map(|(team_id, team)| {
+                    send_pattern_to_team_buzzer(
+                        state,
+                        team_id,
+                        team,
+                        BuzzerPatternPreset::Standby(team.color.clone()),
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .await?;
+    Ok(result)
 }
 
 /// Advance to the next song or finish the playlist when exhausted.
@@ -366,14 +402,16 @@ async fn load_next_song(
             ))
         })
         .await?;
-    let next_song_index = if start && !current_song_found {
+    let next_song_index: Option<usize> = if start && !current_song_found {
         current_song_index.or(Some(0)) // "New Game +" if playlist was completed in the previous session
     } else {
         let next_song_index = current_song_index
-            .map(|i| i + 1)
-            .ok_or_else(|| ServiceError::InvalidState("no active song: playlist is over".into()))?;
+            .ok_or_else(|| ServiceError::InvalidState("no active song: playlist is over".into()))?
+            + 1;
         if next_song_index < playlist_length {
             Some(next_song_index)
+        } else if start {
+            Some(0) // "New Game +" if playlist was completed in the previous session
         } else {
             None
         }
@@ -386,7 +424,7 @@ async fn load_next_song(
         GameEvent::Finish(FinishReason::PlaylistCompleted)
     };
 
-    run_transition_with_broadcast(state, event, move || async move {
+    let result = run_transition_with_broadcast(state, event, move || async move {
         let summary = state
             .with_current_game_mut(|game| {
                 if game.current_song_index != next_song_index {
@@ -411,7 +449,25 @@ async fn load_next_song(
         state.persist_current_game().await?;
         Ok(summary)
     })
-    .await
+    .await?;
+    if next_song_index.is_some() {
+        state
+            .with_current_game(|game| {
+                game.teams
+                    .iter()
+                    .map(|(team_id, team)| {
+                        send_pattern_to_team_buzzer(
+                            state,
+                            team_id,
+                            team,
+                            BuzzerPatternPreset::Playing(team.color.clone()),
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .await?;
+    };
+    Ok(result)
 }
 
 /// Stop the running game early, capture standings, and persist them.
@@ -438,7 +494,7 @@ pub async fn stop_game(state: &SharedState) -> Result<StopGameResponse, ServiceE
 
 /// Clean up any remaining shared state after the game is complete.
 pub async fn end_game(state: &SharedState) -> Result<ActionResponse, ServiceError> {
-    run_transition_with_broadcast(state, GameEvent::EndGame, move || async move {
+    let response = run_transition_with_broadcast(state, GameEvent::EndGame, move || async move {
         state
             .with_current_game_slot_mut(|slot| {
                 slot.take();
@@ -448,7 +504,18 @@ pub async fn end_game(state: &SharedState) -> Result<ActionResponse, ServiceErro
             message: "ended".into(),
         })
     })
-    .await
+    .await?;
+    state.buzzers().iter().for_each(|connection| {
+        let tx = connection.tx.clone();
+        drop(connection);
+        send_message_to_websocket(
+            &tx,
+            &BuzzerOutboundMessage {
+                pattern: state.buzzer_pattern(BuzzerPatternPreset::WaitingForPairing),
+            },
+        );
+    });
+    Ok(response)
 }
 
 // ---------------------------------------------------------------------------
