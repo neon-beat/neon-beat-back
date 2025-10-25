@@ -4,6 +4,7 @@ use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use crate::{
     config::BuzzerPatternPreset,
@@ -18,6 +19,7 @@ use crate::{
     },
     state::{
         BuzzerConnection, SharedState,
+        game::Team,
         state_machine::{GameEvent, GamePhase, GameRunningPhase, PauseKind, PrepStatus},
         transitions::run_transition_with_broadcast,
     },
@@ -188,6 +190,38 @@ pub fn send_message_to_websocket<T>(
         }
         Err(err) => warn!(error = %err, "failed to serialize {message_type}"),
     }
+}
+
+/// Send a pattern update to the buzzer associated with `team`.
+pub fn send_pattern_to_team_buzzer(
+    state: &SharedState,
+    team_id: &Uuid,
+    team: &Team,
+    preset: BuzzerPatternPreset,
+    message_type: &str,
+) -> Result<(), ServiceError> {
+    let buzzer_id = team.buzzer_id.as_ref().ok_or_else(|| {
+        ServiceError::InvalidState(format!("team `{team_id}` has no paired buzzer"))
+    })?;
+
+    let tx = state
+        .buzzers()
+        .get(buzzer_id)
+        .ok_or_else(|| {
+            ServiceError::InvalidState(format!("buzzer `{buzzer_id}` is not connected"))
+        })?
+        .tx
+        .clone();
+
+    send_message_to_websocket(
+        &tx,
+        &BuzzerOutboundMessage {
+            pattern: state.buzzer_pattern(preset),
+        },
+        message_type,
+    );
+
+    Ok(())
 }
 
 /// Process a buzz coming from a buzzer connection, returning whether the team can answer.

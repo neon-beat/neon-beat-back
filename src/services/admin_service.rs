@@ -27,7 +27,7 @@ use crate::{
         game_service,
         pairing::{PairingSessionUpdate, apply_pairing_update, handle_pairing_progress},
         sse_events,
-        websocket_service::send_message_to_websocket,
+        websocket_service::{send_message_to_websocket, send_pattern_to_team_buzzer},
     },
     state::{
         SharedState,
@@ -349,35 +349,13 @@ pub async fn reveal(state: &SharedState) -> Result<ActionResponse, ServiceError>
             game.teams
                 .iter()
                 .map(|(team_id, team)| {
-                    team.buzzer_id
-                        .as_ref()
-                        .ok_or_else(|| {
-                            ServiceError::InvalidState(format!(
-                                "team `{team_id}` has no paired buzzer"
-                            ))
-                        })
-                        .and_then(|buzzer_id| {
-                            state
-                                .buzzers()
-                                .get(buzzer_id)
-                                .ok_or_else(|| {
-                                    ServiceError::InvalidState(format!(
-                                        "buzzer `{buzzer_id}` is not connected"
-                                    ))
-                                })
-                                .map(|buzzer| buzzer.tx.clone())
-                                .map(|tx| {
-                                    send_message_to_websocket(
-                                        &tx,
-                                        &BuzzerOutboundMessage {
-                                            pattern: state.buzzer_pattern(
-                                                BuzzerPatternPreset::Standby(team.color.clone()),
-                                            ),
-                                        },
-                                        "standby",
-                                    )
-                                })
-                        })
+                    send_pattern_to_team_buzzer(
+                        state,
+                        team_id,
+                        team,
+                        BuzzerPatternPreset::Standby(team.color.clone()),
+                        "standby",
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()
         })
