@@ -720,16 +720,24 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] When entering in the Reveal phase, save the information (in order to know it if we restart the session)
 - [x] Define color for teams (HSV) -> split the spectrum in 20 hues
 - [x] Send pattern to WS
-- [ ] Fix error when too many score adjust are requested :
+- [x] Fix error when too many score adjust are requested :
    - [x] Re-model the data to avoid hotspots: separate Team from Game DB documents
    - [x] Coordinate persistence operations with locking and throttling
    - [x] Optimistic-retry for some CouchDB write operations
    - [x] Debounce persistence operations on game store
+- [x] Return an error if shuffle is requested but not possible
+- [ ] Reject unknown/unexpected fields for query/path params with `#[serde(deny_unknown_fields)]`
+- [ ] Bugfix : an admin SSE WiFi deconnexion seems to lock the backend
 - [ ] On a buzzer reconnexion, send back its pattern
+- [ ] Be able to reveal during Pause phase
+- [ ] Add another Pause phase between Reveal and Playing
 - [ ] If a buzzer enters inhibited mode, send the information to SSE streams (public & admin)
+- [ ] Return errors if path or query parameter is not managed
+Erreur si param non attendu ?
 - [ ] Better management for panics & expects
 - [ ] Less info logs (only connected/disconnected)
-- [ ] If there is no game: do not send 404 for GET Teams
+- [ ] Improve error codes
+   - [ ] If there is no game: do not send 404 for GET Teams
 - [x] During Pause event, do not send song to SSE
 - [ ] SSE public GameSession & NextSong: remove field responses
 - [ ] Mark field found: send response to public SSE

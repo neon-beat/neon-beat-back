@@ -256,33 +256,35 @@ pub async fn start_game(
                 Ok(())
             })
             .await?;
-    }
 
-    let shuffled = if shuffle {
-        state
-            .with_current_game_mut(|game| {
-                // Shuffle only if the playlist has not started or was completed
-                if matches!(game.current_song_index, None | Some(0)) {
-                    if game.playlist_song_order.len() > 1 {
-                        let mut rng = rng();
-                        game.playlist_song_order.shuffle(&mut rng);
-                        game.updated_at = SystemTime::now();
-                        Ok(Some(game.clone()))
+        let shuffled = if shuffle {
+            state
+                .with_current_game_mut(|game| {
+                    // Shuffle only if the playlist has not started or was completed
+                    if matches!(game.current_song_index, None | Some(0)) {
+                        if game.playlist_song_order.len() > 1 {
+                            let mut rng = rng();
+                            game.playlist_song_order.shuffle(&mut rng);
+                            game.updated_at = SystemTime::now();
+                            Ok(Some(game.clone()))
+                        } else {
+                            Ok(None)
+                        }
                     } else {
-                        Ok(None)
+                        Err(ServiceError::InvalidInput(
+                            "shuffle parameter cannot be used: game is already in progress".into(),
+                        ))
                     }
-                } else {
-                    Ok(None)
-                }
-            })
-            .await?
-    } else {
-        None
-    };
+                })
+                .await?
+        } else {
+            None
+        };
 
-    if let Some(snapshot) = shuffled {
-        state.persist_current_game_without_teams().await?;
-        sse_events::broadcast_game_session(state, &snapshot);
+        if let Some(snapshot) = shuffled {
+            state.persist_current_game_without_teams().await?;
+            sse_events::broadcast_game_session(state, &snapshot);
+        }
     }
 
     let song_summary = load_next_song(state, true)
