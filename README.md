@@ -648,7 +648,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Send pattern to WS
 - [ ] Fix error when too many score adjust are requested :
    - [x] Re-model the data to avoid hotspots: separate Team from Game DB documents
-   - [ ] Debounce/throttle when persisting data
+   - [x] Coordinate persistence operations with locking and throttling
    - [ ] Optimistic-retry for CouchDB calls (& MongoDB ?)
 - [ ] On a buzzer reconnexion, send back its pattern
 - [ ] If a buzzer enters inhibited mode, send the information to SSE streams (public & admin)

@@ -48,6 +48,49 @@ pub struct BuzzerConnection {
     pub tx: mpsc::UnboundedSender<Message>,
 }
 
+/// Coordinates persistence operations with locking and throttling.
+///
+/// This component encapsulates all persistence coordination state to prevent:
+/// - Concurrent writes causing CouchDB revision conflicts
+/// - Rapid-fire updates overwhelming the database
+///
+/// Uses separate coordination for game-level and team-level persistence to allow
+/// different teams to persist concurrently while maintaining serial writes per team.
+struct PersistenceCoordinator {
+    /// Mutex used to serialize full game persistent saves to avoid concurrent PUTs.
+    game_lock: Mutex<()>,
+    /// Timestamp of last successful game persist, used for throttling.
+    game_last_persist: RwLock<Option<Instant>>,
+    /// Per-team persistence metadata (lock + throttle timestamp).
+    /// Keyed by team_id only since only one game is active at a time.
+    team_metadata: DashMap<Uuid, TeamPersistMetadata>,
+}
+
+/// Metadata for coordinating team persistence operations.
+/// Encapsulates both the lock (for serialization) and throttle timestamp (for rate limiting).
+struct TeamPersistMetadata {
+    /// Lock ensuring serial saves of this team document to avoid CouchDB _rev conflicts.
+    lock: Arc<Mutex<()>>,
+    /// Timestamp of the last successful persist, used for throttling rapid updates.
+    last_persist: Option<Instant>,
+}
+
+impl PersistenceCoordinator {
+    fn new() -> Self {
+        Self {
+            game_lock: Mutex::new(()),
+            game_last_persist: RwLock::new(None),
+            team_metadata: DashMap::new(),
+        }
+    }
+
+    /// Clear all team persistence metadata.
+    /// Should be called when switching to a new game to ensure clean state.
+    fn clear_team_metadata(&self) {
+        self.team_metadata.clear();
+    }
+}
+
 /// Central application state storing persistent connections and database handles.
 pub struct AppState {
     config: Arc<AppConfig>,
@@ -60,6 +103,7 @@ pub struct AppState {
     degraded_tx: watch::Sender<bool>,
     transition_gate: Mutex<()>,
     transition_timeout: Option<Duration>,
+    persistence: PersistenceCoordinator,
 }
 
 impl AppState {
@@ -79,22 +123,38 @@ impl AppState {
             degraded_tx,
             transition_gate: Mutex::new(()),
             transition_timeout: Some(DEFAULT_TRANSITION_TIMEOUT),
+            persistence: PersistenceCoordinator::new(),
         })
-    }
-
-    /// Obtain a handle to the current game store, if one is installed.
-    pub async fn game_store(&self) -> Option<Arc<dyn GameStore>> {
-        let guard = self.game_store.read().await;
-        guard.as_ref().cloned()
     }
 
     /// Retrieve the configured game store or report degraded mode.
     pub async fn require_game_store(&self) -> Result<Arc<dyn GameStore>, ServiceError> {
-        self.game_store().await.ok_or(ServiceError::Degraded)
+        let guard = self.game_store.read().await;
+        guard.as_ref().cloned().ok_or(ServiceError::Degraded)
     }
 
-    /// Persist the current in-memory game back into the configured store.
-    pub async fn persist_current_game(&self) -> Result<(), ServiceError> {
+    /// Helper to execute a persistence operation with locking and throttling.
+    /// Takes a closure that performs the actual storage operation.
+    async fn persist_with_throttle<F, Fut>(&self, persist_fn: F) -> Result<(), ServiceError>
+    where
+        F: FnOnce(Arc<dyn GameStore>, GameSession) -> Fut,
+        Fut: std::future::Future<Output = Result<(), crate::dao::storage::StorageError>>,
+    {
+        // Serialize persistent saves so we don't issue concurrent PUTs to CouchDB which would
+        // result in revision conflicts. We also throttle frequent calls: if a successful save
+        // occurred recently, skip another save.
+        let _lock = self.persistence.game_lock.lock().await;
+
+        // Throttle window (tunable).
+        const PERSIST_COOLDOWN: Duration = Duration::from_millis(200);
+
+        if let Some(last) = *self.persistence.game_last_persist.read().await {
+            if last.elapsed() < PERSIST_COOLDOWN {
+                // A recent persist was performed; skip this write to avoid contention.
+                return Ok(());
+            }
+        }
+
         let store = self.require_game_store().await?;
         let snapshot = {
             let guard = self.current_game.read().await;
@@ -103,9 +163,19 @@ impl AppState {
                 .cloned()
                 .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?
         };
-        store.save_game(snapshot.into()).await?;
 
+        persist_fn(store, snapshot).await?;
+
+        *self.persistence.game_last_persist.write().await = Some(Instant::now());
         Ok(())
+    }
+
+    /// Persist the current in-memory game back into the configured store.
+    pub async fn persist_current_game(&self) -> Result<(), ServiceError> {
+        self.persist_with_throttle(|store, snapshot| async move {
+            store.save_game(snapshot.into()).await
+        })
+        .await
     }
 
     /// Persist only game document (without team documents) for efficient partial updates.
@@ -113,41 +183,94 @@ impl AppState {
     /// current_song_found, playlist_song_order, found fields).
     /// The `teams` field in the snapshot is ignored by the storage layer.
     pub async fn persist_current_game_without_teams(&self) -> Result<(), ServiceError> {
-        let store = self.require_game_store().await?;
-        let snapshot = {
-            let guard = self.current_game.read().await;
-            guard
-                .as_ref()
-                .cloned()
-                .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?
-        };
-        store.save_game_without_teams(snapshot.into()).await?;
-
-        Ok(())
+        self.persist_with_throttle(|store, snapshot| async move {
+            store.save_game_without_teams(snapshot.into()).await
+        })
+        .await
     }
 
     /// Persist a single team document to storage.
     /// Use this when only team-specific data has changed (e.g., score, name, buzzer_id).
-    /// This method uses the persist lock to serialize with other persistence operations
-    /// but does not throttle, as team documents are independent.
+    /// This method throttles per-team to avoid rapid-fire updates for the same team
+    /// (e.g., from rapid score adjustments via REST API).
+    /// Uses per-team locking so different teams can persist concurrently.
     pub async fn persist_team(
         &self,
         game_id: Uuid,
         team_id: Uuid,
         team: game::Team,
     ) -> Result<(), ServiceError> {
+        const TEAM_PERSIST_COOLDOWN: Duration = Duration::from_millis(200);
+
+        // Get or create metadata for this specific team
+        let metadata = self
+            .persistence
+            .team_metadata
+            .entry(team_id)
+            .or_insert_with(|| TeamPersistMetadata {
+                lock: Arc::new(Mutex::new(())),
+                last_persist: None,
+            });
+
+        // Check throttle without holding the lock (fast path)
+        if let Some(last) = metadata.last_persist {
+            if last.elapsed() < TEAM_PERSIST_COOLDOWN {
+                // Recent persist for this team; skip to avoid contention
+                return Ok(());
+            }
+        }
+
+        // Clone the lock to release the DashMap entry before awaiting
+        let team_lock = metadata.lock.clone();
+        drop(metadata);
+
+        // Lock only this specific team, allowing other teams to persist concurrently
+        let _lock = team_lock.lock().await;
+
+        // Double-check throttle after acquiring lock (race condition mitigation)
+        if let Some(metadata) = self.persistence.team_metadata.get(&team_id) {
+            if let Some(last) = metadata.last_persist {
+                if last.elapsed() < TEAM_PERSIST_COOLDOWN {
+                    return Ok(());
+                }
+            }
+        }
+
         let store = self.require_game_store().await?;
         let team_entity: TeamEntity = (team_id, team).into();
         store.save_team(game_id, team_entity).await?;
+
+        // Update the per-team throttle timestamp
+        if let Some(mut metadata) = self.persistence.team_metadata.get_mut(&team_id) {
+            metadata.last_persist = Some(Instant::now());
+        }
 
         Ok(())
     }
 
     /// Delete a single team document from storage.
-    /// This method uses the persist lock to serialize with other persistence operations.
+    /// Uses per-team locking so different teams can be deleted concurrently.
     pub async fn delete_team(&self, game_id: Uuid, team_id: Uuid) -> Result<(), ServiceError> {
+        // Get or create metadata for this specific team
+        let team_lock = self
+            .persistence
+            .team_metadata
+            .entry(team_id)
+            .or_insert_with(|| TeamPersistMetadata {
+                lock: Arc::new(Mutex::new(())),
+                last_persist: None,
+            })
+            .lock
+            .clone();
+
+        // Lock only this specific team
+        let _lock = team_lock.lock().await;
+
         let store = self.require_game_store().await?;
         store.delete_team(game_id, team_id).await?;
+
+        // Clean up the metadata entry for this deleted team
+        self.persistence.team_metadata.remove(&team_id);
 
         Ok(())
     }
@@ -287,6 +410,12 @@ impl AppState {
     {
         let mut guard = self.current_game.write().await;
         f(&mut guard)
+    }
+
+    /// Clear all team persistence metadata.
+    /// Should be called when switching to a new game to ensure clean state.
+    pub fn clear_team_metadata(&self) {
+        self.persistence.clear_team_metadata();
     }
 
     /// Build a snapshot describing the current gameplay phase and related state.

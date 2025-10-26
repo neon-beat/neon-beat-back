@@ -152,7 +152,7 @@ pub async fn delete_game(state: &SharedState, id: Uuid) -> Result<(), ServiceErr
             .await;
     }
 
-    let store = state.game_store().await.ok_or(ServiceError::Degraded)?;
+    let store = state.require_game_store().await?;
     let deleted = store.delete_game(id).await?;
     if deleted {
         Ok(())
