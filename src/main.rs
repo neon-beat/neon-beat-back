@@ -50,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Build the HTTP router once the shared state is ready.
-    let app = build_router(app_state);
+    let app = build_router(app_state.clone());
 
     let port = env::var("PORT")
         .or_else(|_| env::var("SERVER_PORT"))
@@ -64,7 +64,9 @@ async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind(addr).await.context("binding server")?;
     let service = app.into_make_service();
     axum::serve(listener, service)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(async move {
+            shutdown_signal(app_state).await;
+        })
         .await
         .context("serving axum")?;
 
@@ -213,7 +215,7 @@ fn init_tracing() {
 }
 
 /// Wait for Ctrl+C or SIGTERM and shut the server down gracefully.
-async fn shutdown_signal() {
+async fn shutdown_signal(app_state: Arc<AppState>) {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal};
@@ -229,4 +231,10 @@ async fn shutdown_signal() {
     {
         let _ = tokio::signal::ctrl_c().await;
     }
+
+    info!("Shutdown signal received, flushing pending updates...");
+    if let Err(e) = app_state.shutdown().await {
+        tracing::error!(error = ?e, "Error during graceful shutdown");
+    }
+    info!("Shutdown complete");
 }
