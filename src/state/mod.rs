@@ -3,12 +3,14 @@ mod sse;
 pub mod state_machine;
 pub mod transitions;
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
-use crate::services::websocket_service::send_message_to_websocket;
 use crate::{
     config::{AppConfig, BuzzerPatternPreset},
-    dao::game_store::GameStore,
+    dao::{game_store::GameStore, models::TeamEntity},
     dto::{
         common::{GamePhaseSnapshot, SongSnapshot},
         game::TeamSummary,
@@ -102,6 +104,51 @@ impl AppState {
                 .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?
         };
         store.save_game(snapshot.into()).await?;
+
+        Ok(())
+    }
+
+    /// Persist only game document (without team documents) for efficient partial updates.
+    /// Use this when only game-level fields have changed (e.g., current_song_index,
+    /// current_song_found, playlist_song_order, found fields).
+    /// The `teams` field in the snapshot is ignored by the storage layer.
+    pub async fn persist_current_game_without_teams(&self) -> Result<(), ServiceError> {
+        let store = self.require_game_store().await?;
+        let snapshot = {
+            let guard = self.current_game.read().await;
+            guard
+                .as_ref()
+                .cloned()
+                .ok_or_else(|| ServiceError::InvalidState("no active game".into()))?
+        };
+        store.save_game_without_teams(snapshot.into()).await?;
+
+        Ok(())
+    }
+
+    /// Persist a single team document to storage.
+    /// Use this when only team-specific data has changed (e.g., score, name, buzzer_id).
+    /// This method uses the persist lock to serialize with other persistence operations
+    /// but does not throttle, as team documents are independent.
+    pub async fn persist_team(
+        &self,
+        game_id: Uuid,
+        team_id: Uuid,
+        team: game::Team,
+    ) -> Result<(), ServiceError> {
+        let store = self.require_game_store().await?;
+        let team_entity: TeamEntity = (team_id, team).into();
+        store.save_team(game_id, team_entity).await?;
+
+        Ok(())
+    }
+
+    /// Delete a single team document from storage.
+    /// This method uses the persist lock to serialize with other persistence operations.
+    pub async fn delete_team(&self, game_id: Uuid, team_id: Uuid) -> Result<(), ServiceError> {
+        let store = self.require_game_store().await?;
+        store.delete_team(game_id, team_id).await?;
+
         Ok(())
     }
 

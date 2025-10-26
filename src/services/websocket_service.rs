@@ -239,7 +239,7 @@ async fn handle_prep_ready_buzz(
     outbound_tx: &mpsc::UnboundedSender<Message>,
 ) -> Result<(), ServiceError> {
     let config = state.config();
-    let maybe_summary = state
+    let maybe_result = state
         .with_current_game_mut(|game| {
             if let Some((&team_id, _)) = game
                 .teams
@@ -263,16 +263,19 @@ async fn handle_prep_ready_buzz(
                             .buzzer_pattern(BuzzerPatternPreset::Standby(new_team.color.clone())),
                     },
                 );
-                Ok(Some(TeamSummary::from((team_id, new_team))))
+                Ok(Some((game.id, team_id, new_team)))
             } else {
                 Ok(None)
             }
         })
         .await?;
 
-    if let Some(summary) = maybe_summary {
-        state.persist_current_game().await?;
-        sse_events::broadcast_team_created(state, summary);
+    if let Some((game_id, team_id, team)) = maybe_result {
+        // Persist game metadata and the new team separately for efficiency
+        state.persist_current_game_without_teams().await?;
+        state.persist_team(game_id, team_id, team.clone()).await?;
+
+        sse_events::broadcast_team_created(state, TeamSummary::from((team_id, team)));
     }
     Ok(())
 }
@@ -289,24 +292,28 @@ async fn handle_prep_pairing_buzz(
         .ok_or_else(|| ServiceError::InvalidState("pairing workflow lost session state".into()))?;
     let team_id = pairing_session.pairing_team_id;
 
-    let (roster, team_color) = state
+    let (game_id, roster, team_color, modified_teams) = state
         .with_current_game_mut(|game| {
+            let mut modified_teams = Vec::new();
+
             let team_color = {
                 let team = game
                     .teams
                     .get_mut(&team_id)
                     .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
                 team.buzzer_id = Some(buzzer_id.to_string());
+                modified_teams.push((team_id, team.clone()));
                 team.color.clone()
             };
 
             for (id, team) in game.teams.iter_mut() {
                 if *id != team_id && team.buzzer_id.as_deref() == Some(buzzer_id) {
                     team.buzzer_id = None;
+                    modified_teams.push((*id, team.clone()));
                 }
             }
 
-            Ok((game.teams.clone(), team_color))
+            Ok((game.id, game.teams.clone(), team_color, modified_teams))
         })
         .await?;
 
@@ -324,7 +331,12 @@ async fn handle_prep_pairing_buzz(
                 ServiceError::InvalidState("pairing target changed during update".into())
             })?;
 
-    state.persist_current_game().await?;
+    // Persist game metadata and modified teams separately for efficiency
+    state.persist_current_game_without_teams().await?;
+    for (tid, team) in modified_teams {
+        state.persist_team(game_id, tid, team).await?;
+    }
+
     sse_events::broadcast_pairing_assigned(state, team_id, buzzer_id);
     handle_pairing_progress(state, pairing_progress).await?;
 

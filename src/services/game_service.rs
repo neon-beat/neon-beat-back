@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, time::SystemTime};
 
 use indexmap::IndexMap;
 use uuid::Uuid;
@@ -67,11 +67,10 @@ pub async fn create_game(
 
     let teams = build_teams(teams, config.as_ref())?;
 
-    let store = state.game_store().await.ok_or(ServiceError::Degraded)?;
-
     let playlist = match playlist {
         Some(p) => p,
         None => {
+            let store = state.require_game_store().await?;
             let playlist_entity = store.find_playlist(playlist_id).await?.ok_or_else(|| {
                 ServiceError::NotFound(format!("playlist `{}` not found", playlist_id))
             })?;
@@ -90,12 +89,13 @@ pub async fn create_game(
         panic!("playlist_song_order should not be empty")
     };
 
-    store.save_game(game.clone().into()).await?;
     state
         .with_current_game_slot_mut(|slot| {
             *slot = Some(game.clone());
         })
         .await;
+
+    state.persist_current_game().await?;
 
     sse_events::broadcast_game_session(state, &game);
 
@@ -200,6 +200,7 @@ fn build_teams(
                 name: team.name,
                 score: team.score.unwrap_or_default(),
                 color,
+                updated_at: SystemTime::now(),
             };
 
             Ok((Uuid::new_v4(), team))

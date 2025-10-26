@@ -646,6 +646,10 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] When entering in the Reveal phase, save the information (in order to know it if we restart the session)
 - [x] Define color for teams (HSV) -> split the spectrum in 20 hues
 - [x] Send pattern to WS
+- [ ] Fix error when too many score adjust are requested :
+   - [x] Re-model the data to avoid hotspots: separate Team from Game DB documents
+   - [ ] Debounce/throttle when persisting data
+   - [ ] Optimistic-retry for CouchDB calls (& MongoDB ?)
 - [ ] On a buzzer reconnexion, send back its pattern
 - [ ] If a buzzer enters inhibited mode, send the information to SSE streams (public & admin)
 - [ ] Better management for panics & expects

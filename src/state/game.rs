@@ -79,6 +79,8 @@ pub struct Team {
     pub score: i32,
     /// HSV color assigned to the team.
     pub color: TeamColor,
+    /// Timestamp of the last update to this team.
+    pub updated_at: SystemTime,
 }
 
 /// Aggregated state for an in-progress or persisted game session.
@@ -168,6 +170,7 @@ impl GameSession {
             name: name.unwrap_or_else(|| format!("Team {}", self.teams.len() + 1)),
             score: score.unwrap_or(0),
             color,
+            updated_at: SystemTime::now(),
         };
         self.teams.insert(team_id, team.clone());
         (team_id, team)
@@ -262,6 +265,7 @@ impl From<TeamEntity> for Team {
             name: value.name,
             score: value.score,
             color: value.color.into(),
+            updated_at: value.updated_at,
         }
     }
 }
@@ -274,6 +278,7 @@ impl From<TeamEntity> for (Uuid, Team) {
             name: value.name,
             score: value.score,
             color: value.color.into(),
+            updated_at: value.updated_at,
         };
         (id, team)
     }
@@ -287,6 +292,7 @@ impl From<(Uuid, Team)> for TeamEntity {
             name: team.name,
             score: team.score,
             color: team.color.into(),
+            updated_at: team.updated_at,
         }
     }
 }
