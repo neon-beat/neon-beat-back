@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.7.0] - Persistence Layer Improvements
+
+### Added
+- **Debouncing mechanism** for persistence operations (200ms cooldown) to prevent data loss during rapid updates while reducing database load
+- **Graceful shutdown** handler that flushes all pending updates before termination
+- **Per-team locking** to prevent concurrent write conflicts while allowing parallel team updates
+- **Optimistic retry** for CouchDB write operations with exponential backoff
+- **Comprehensive documentation** of persistence architecture (see README)
+
+### Changed
+- **Separated team documents** from game documents to avoid write hotspots and improve scalability
+- **Persistence coordinator** now centralizes all locking, throttling, and debouncing logic
+
+See the [Persistence Architecture](README.md#persistence-architecture) section in the README for detailed information.
+
 ## [v0.6.0] - Send patterns to buzzers through BuzzerOutboundMessage
 
 - Add a `BuzzerOutboundMessage` for sending patterns to the WebSocket clients
