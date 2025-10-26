@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use futures::{TryStreamExt, future::BoxFuture};
 use mongodb::{Client, Collection, Database, bson::doc, options::IndexOptions};
@@ -9,11 +9,11 @@ use super::{
     config::MongoConfig,
     connection::establish_connection,
     error::{MongoDaoError, MongoResult},
-    models::{MongoGameDocument, doc_id},
+    models::{MongoGameDocument, MongoTeamDocument, doc_id, uuid_as_binary},
 };
 use crate::dao::{
     game_store::GameStore,
-    models::{GameEntity, GameListItemEntity, PlaylistEntity},
+    models::{GameEntity, GameListItemEntity, PlaylistEntity, TeamEntity},
     storage::StorageResult,
 };
 
@@ -96,6 +96,27 @@ impl MongoGameStore {
                 source,
             })?;
 
+        // Ensure index on teams collection for efficient lookups by (game_id, team_id)
+        let team_collection = database.collection::<MongoTeamDocument>("teams");
+        let team_index = mongodb::IndexModel::builder()
+            .keys(doc! {"game_id": 1, "team_id": 1})
+            .options(
+                IndexOptions::builder()
+                    .name(Some("team_game_idx".to_owned()))
+                    .unique(Some(true))
+                    .build(),
+            )
+            .build();
+
+        team_collection
+            .create_index(team_index)
+            .await
+            .map_err(|source| MongoDaoError::EnsureIndex {
+                collection: "teams",
+                index: "game_id,team_id",
+                source,
+            })?;
+
         Ok(())
     }
 
@@ -111,6 +132,11 @@ impl MongoGameStore {
             .collection::<MongoGameDocument>(GAME_COLLECTION_NAME)
     }
 
+    async fn team_collection(&self) -> Collection<MongoTeamDocument> {
+        let guard = self.inner.state.read().await;
+        guard.database.collection::<MongoTeamDocument>("teams")
+    }
+
     async fn playlist_collection(&self) -> Collection<PlaylistEntity> {
         let guard = self.inner.state.read().await;
         guard
@@ -118,11 +144,12 @@ impl MongoGameStore {
             .collection::<PlaylistEntity>(PLAYLIST_COLLECTION_NAME)
     }
 
-    async fn save_game(&self, game: GameEntity) -> MongoResult<()> {
+    /// Helper to persist the game document.
+    /// Extracts team IDs from the GameEntity.
+    async fn save_game_document(&self, game: GameEntity) -> MongoResult<()> {
         let id = game.id;
         let document: MongoGameDocument = game.into();
         let collection = self.collection().await;
-
         collection
             .replace_one(doc_id(id), &document)
             .upsert(true)
@@ -132,7 +159,29 @@ impl MongoGameStore {
         Ok(())
     }
 
-    async fn delete_game_internal(&self, id: Uuid) -> MongoResult<bool> {
+    async fn save_game(&self, game: GameEntity) -> MongoResult<()> {
+        let id = game.id;
+        // First persist individual team documents in the teams collection.
+        let team_coll = self.team_collection().await;
+        for team in game.teams.iter() {
+            let team_doc: MongoTeamDocument = (game.id, team.clone()).into();
+            team_coll
+                .replace_one(doc! { "game_id": uuid_as_binary(team_doc.game_id), "team_id": uuid_as_binary(team_doc.team_id) }, &team_doc)
+                .upsert(true)
+                .await
+                .map_err(|source| MongoDaoError::SaveGame { id, source })?;
+        }
+
+        // Persist the game document (team IDs extracted from game.teams)
+        self.save_game_document(game).await
+    }
+
+    async fn save_game_without_teams(&self, game: GameEntity) -> MongoResult<()> {
+        // Persist the game document (team IDs extracted from game.teams)
+        self.save_game_document(game).await
+    }
+
+    async fn delete_game(&self, id: Uuid) -> MongoResult<bool> {
         let collection = self.collection().await;
         let result = collection
             .delete_one(doc_id(id))
@@ -141,7 +190,7 @@ impl MongoGameStore {
         Ok(result.deleted_count > 0)
     }
 
-    async fn save_playlist_entity(&self, playlist: PlaylistEntity) -> MongoResult<()> {
+    async fn save_playlist(&self, playlist: PlaylistEntity) -> MongoResult<()> {
         let collection = self.playlist_collection().await;
 
         collection
@@ -164,10 +213,43 @@ impl MongoGameStore {
             .await
             .map_err(|source| MongoDaoError::LoadGame { id, source })?;
 
-        Ok(document.map(Into::into))
+        let maybe_doc = match document {
+            Some(doc) => doc,
+            None => return Ok(None),
+        };
+
+        // Load team documents for this game and assemble the GameEntity
+        let team_coll = self.team_collection().await;
+        let team_docs: Vec<MongoTeamDocument> = team_coll
+            .find(doc! { "game_id": uuid_as_binary(id) })
+            .await
+            .map_err(|source| MongoDaoError::LoadGame { id, source })?
+            .try_collect()
+            .await
+            .map_err(|source| MongoDaoError::LoadGame { id, source })?;
+
+        // Build map from team_id to TeamEntity
+        let mut team_map: HashMap<Uuid, TeamEntity> = HashMap::new();
+        for td in team_docs {
+            let (_tid, team_entity) = (td)
+                .try_into()
+                .map_err(|e| MongoDaoError::LoadGame { id, source: e })?;
+            team_map.insert(team_entity.id, team_entity);
+        }
+
+        // Order teams according to the game document's team id list
+        let team_ids = maybe_doc.teams.clone();
+        let teams = team_ids
+            .into_iter()
+            .filter_map(|team_id| team_map.get(&team_id).cloned())
+            .collect();
+
+        let mut game_entity: GameEntity = maybe_doc.into();
+        game_entity.teams = teams;
+        Ok(Some(game_entity))
     }
 
-    async fn find_playlist_entity(&self, id: Uuid) -> MongoResult<Option<PlaylistEntity>> {
+    async fn find_playlist(&self, id: Uuid) -> MongoResult<Option<PlaylistEntity>> {
         let collection = self.playlist_collection().await;
 
         collection
@@ -176,7 +258,7 @@ impl MongoGameStore {
             .map_err(|source| MongoDaoError::LoadPlaylist { id, source })
     }
 
-    async fn list_games_internal(&self) -> MongoResult<Vec<GameListItemEntity>> {
+    async fn list_games(&self) -> MongoResult<Vec<GameListItemEntity>> {
         let collection = self.collection().await;
 
         let documents: Vec<MongoGameDocument> = collection
@@ -196,7 +278,7 @@ impl MongoGameStore {
             .collect())
     }
 
-    async fn list_playlists_internal(&self) -> MongoResult<Vec<(Uuid, String)>> {
+    async fn list_playlists(&self) -> MongoResult<Vec<(Uuid, String)>> {
         let collection = self.playlist_collection().await;
 
         let documents: Vec<PlaylistEntity> = collection
@@ -220,14 +302,19 @@ impl GameStore for MongoGameStore {
         Box::pin(async move { store.save_game(game).await.map_err(Into::into) })
     }
 
-    fn save_playlist(&self, playlist: PlaylistEntity) -> BoxFuture<'static, StorageResult<()>> {
+    fn save_game_without_teams(&self, game: GameEntity) -> BoxFuture<'static, StorageResult<()>> {
         let store = self.clone();
         Box::pin(async move {
             store
-                .save_playlist_entity(playlist)
+                .save_game_without_teams(game)
                 .await
                 .map_err(Into::into)
         })
+    }
+
+    fn save_playlist(&self, playlist: PlaylistEntity) -> BoxFuture<'static, StorageResult<()>> {
+        let store = self.clone();
+        Box::pin(async move { store.save_playlist(playlist).await.map_err(Into::into) })
     }
 
     fn find_game(&self, id: Uuid) -> BoxFuture<'static, StorageResult<Option<GameEntity>>> {
@@ -237,22 +324,22 @@ impl GameStore for MongoGameStore {
 
     fn find_playlist(&self, id: Uuid) -> BoxFuture<'static, StorageResult<Option<PlaylistEntity>>> {
         let store = self.clone();
-        Box::pin(async move { store.find_playlist_entity(id).await.map_err(Into::into) })
+        Box::pin(async move { store.find_playlist(id).await.map_err(Into::into) })
     }
 
     fn list_games(&self) -> BoxFuture<'static, StorageResult<Vec<GameListItemEntity>>> {
         let store = self.clone();
-        Box::pin(async move { store.list_games_internal().await.map_err(Into::into) })
+        Box::pin(async move { store.list_games().await.map_err(Into::into) })
     }
 
     fn list_playlists(&self) -> BoxFuture<'static, StorageResult<Vec<(Uuid, String)>>> {
         let store = self.clone();
-        Box::pin(async move { store.list_playlists_internal().await.map_err(Into::into) })
+        Box::pin(async move { store.list_playlists().await.map_err(Into::into) })
     }
 
     fn delete_game(&self, id: Uuid) -> BoxFuture<'static, StorageResult<bool>> {
         let store = self.clone();
-        Box::pin(async move { store.delete_game_internal(id).await.map_err(Into::into) })
+        Box::pin(async move { store.delete_game(id).await.map_err(Into::into) })
     }
 
     fn health_check(&self) -> BoxFuture<'static, StorageResult<()>> {
@@ -263,5 +350,44 @@ impl GameStore for MongoGameStore {
     fn try_reconnect(&self) -> BoxFuture<'static, StorageResult<()>> {
         let store = self.clone();
         Box::pin(async move { store.inner.reconnect().await.map_err(Into::into) })
+    }
+
+    fn save_team(&self, game_id: Uuid, team: TeamEntity) -> BoxFuture<'static, StorageResult<()>> {
+        let store = self.clone();
+        Box::pin(async move {
+            // Persist the single team document into the `teams` collection.
+            // This keeps per-team updates isolated and avoids touching the game document.
+            let team_coll = store.team_collection().await;
+            let team_doc: MongoTeamDocument = (game_id, team).into();
+
+            team_coll
+                .replace_one(
+                    doc! { "game_id": uuid_as_binary(team_doc.game_id), "team_id": uuid_as_binary(team_doc.team_id) },
+                    &team_doc,
+                )
+                .upsert(true)
+                .await
+                .map_err(|source| MongoDaoError::SaveGame { id: game_id, source })?;
+
+            Ok(())
+        })
+    }
+
+    fn delete_team(&self, game_id: Uuid, team_id: Uuid) -> BoxFuture<'static, StorageResult<()>> {
+        let store = self.clone();
+        Box::pin(async move {
+            let team_coll = store.team_collection().await;
+            team_coll
+                .delete_one(
+                    doc! { "game_id": uuid_as_binary(game_id), "team_id": uuid_as_binary(team_id) },
+                )
+                .await
+                .map_err(|source| MongoDaoError::SaveGame {
+                    id: game_id,
+                    source,
+                })?;
+
+            Ok(())
+        })
     }
 }

@@ -105,6 +105,80 @@ flowchart LR
     MongoDbDao --> MongoDbInstance[MongoDB Instance]
 ```
 
+### Persistence Architecture
+
+The persistence layer implements a sophisticated coordination mechanism to balance data consistency with database efficiency. This architecture is critical for preventing data loss while avoiding database overload during rapid-fire updates (e.g., score adjustments via REST API or WebSocket events).
+
+#### Key Mechanisms
+
+**1. Debouncing**
+
+The system implements debouncing to handle rapid successive updates efficiently:
+
+```
+Timeline with 200ms cooldown:
+
+T=0ms:   persist_team() → Saves to DB immediately ✓
+T=50ms:  persist_team() → Stores as pending, schedules flush at T=200ms
+T=100ms: persist_team() → Replaces pending (latest state wins)
+T=150ms: persist_team() → Replaces pending (latest state wins)
+T=200ms: Flush task → Saves final state (T=150 data) to DB ✓
+
+Result: Only 2 DB writes for 4 update requests, with NO data loss!
+```
+
+**How it works:**
+- **Immediate persist**: If no recent save occurred, data is written immediately
+- **Pending storage**: Updates during cooldown are stored in memory
+- **Single flush task**: Only one background task is spawned per cooldown window
+- **Latest wins**: Subsequent updates replace the pending value
+- **Guaranteed save**: Flush task ensures the final state is persisted after cooldown
+
+**2. Per-Team Locking**
+
+Write operations use fine-grained locking to prevent conflicts while maintaining concurrency:
+- **Different teams** can persist simultaneously (parallel writes)
+- **Same team updates** are serialized to avoid CouchDB revision conflicts
+- **Global game lock** prevents concurrent full-game saves
+
+**3. Optimistic Retry**
+
+CouchDB write operations automatically retry on 409 (conflict) errors:
+- Exponential backoff: 50ms → 100ms → 200ms → 400ms
+- Applied to: game saves, team saves, playlist saves
+- Delete operations intentionally fail on conflict (semantic correctness)
+
+**4. Graceful Shutdown**
+
+When the server receives a shutdown signal (SIGTERM/Ctrl+C):
+1. Pending game save is flushed (if present)
+2. All pending team updates are flushed
+3. Cooldown checks are bypassed for immediate persistence
+4. Detailed logs report success/failure for each flush
+5. Application exits cleanly after all data is saved
+
+#### Guarantees
+
+- ✅ **Eventual consistency**: All updates are eventually persisted
+- ✅ **No data loss**: Updates during cooldown are tracked and saved
+- ✅ **Latest state wins**: Most recent data is always the final state
+- ✅ **No redundant tasks**: Only one flush task per cooldown window
+- ✅ **Graceful shutdown**: Pending data is never lost on restart
+
+#### Tradeoffs
+
+- ⏱️ **Slight delay**: Updates may take up to 200ms to persist
+- 🧠 **Memory overhead**: Pending updates are held in memory
+- 🔧 **Complexity**: More sophisticated than simple throttling
+
+#### Configuration
+
+- **Cooldown duration**: 200ms (hardcoded, prevents >5 writes/sec per entity)
+- **Retry attempts**: 4 attempts with exponential backoff
+- **Concurrency**: Per-team locking allows parallel team updates
+
+This architecture ensures that the system can handle high-frequency updates (e.g., rapid score changes, buzzer events) without overwhelming the database or losing any data, even during ungraceful shutdowns.
+
 ### Game state flow
 ```mermaid
 stateDiagram-v2
@@ -646,6 +720,11 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] When entering in the Reveal phase, save the information (in order to know it if we restart the session)
 - [x] Define color for teams (HSV) -> split the spectrum in 20 hues
 - [x] Send pattern to WS
+- [ ] Fix error when too many score adjust are requested :
+   - [x] Re-model the data to avoid hotspots: separate Team from Game DB documents
+   - [x] Coordinate persistence operations with locking and throttling
+   - [x] Optimistic-retry for some CouchDB write operations
+   - [x] Debounce persistence operations on game store
 - [ ] On a buzzer reconnexion, send back its pattern
 - [ ] If a buzzer enters inhibited mode, send the information to SSE streams (public & admin)
 - [ ] Better management for panics & expects

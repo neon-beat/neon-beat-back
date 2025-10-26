@@ -52,6 +52,8 @@ pub struct TeamEntity {
     pub score: i32,
     /// HSV color assigned to the team.
     pub color: TeamColorEntity,
+    /// Last time this team was updated.
+    pub updated_at: SystemTime,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,7 +102,6 @@ pub struct GameEntity {
     /// Index of the current song to be found.
     pub current_song_index: Option<usize>,
     /// Whether the current song has already been revealed.
-    #[serde(default)]
     pub current_song_found: bool,
 }
 

@@ -152,7 +152,7 @@ pub async fn delete_game(state: &SharedState, id: Uuid) -> Result<(), ServiceErr
             .await;
     }
 
-    let store = state.game_store().await.ok_or(ServiceError::Degraded)?;
+    let store = state.require_game_store().await?;
     let deleted = store.delete_game(id).await?;
     if deleted {
         Ok(())
@@ -281,7 +281,7 @@ pub async fn start_game(
     };
 
     if let Some(snapshot) = shuffled {
-        state.persist_current_game().await?;
+        state.persist_current_game_without_teams().await?;
         sse_events::broadcast_game_session(state, &snapshot);
     }
 
@@ -354,7 +354,7 @@ pub async fn reveal(state: &SharedState) -> Result<ActionResponse, ServiceError>
             })
             .await?;
 
-        state.persist_current_game().await?;
+        state.persist_current_game_without_teams().await?;
 
         Ok(ActionResponse {
             message: "revealed".into(),
@@ -446,7 +446,7 @@ async fn load_next_song(
             })
             .await?;
 
-        state.persist_current_game().await?;
+        state.persist_current_game_without_teams().await?;
         Ok(summary)
     })
     .await?;
@@ -585,7 +585,7 @@ pub async fn mark_field_found(
         })
         .await?;
 
-    state.persist_current_game().await?;
+    state.persist_current_game_without_teams().await?;
 
     sse_events::broadcast_fields_found(
         state,
@@ -625,18 +625,23 @@ pub async fn adjust_score(
 
     let ScoreAdjustmentRequest { delta } = request;
 
-    let updated_team = state
+    let (game_id, team_id, updated_team) = state
         .with_current_game_mut(|game| {
             let team = game
                 .teams
                 .get_mut(&team_id)
                 .ok_or_else(|| ServiceError::NotFound("team not found".into()))?;
             team.score += delta;
-            Ok(team.clone())
+            team.updated_at = std::time::SystemTime::now();
+            Ok((game.id, team_id, team.clone()))
         })
         .await?;
 
-    state.persist_current_game().await?;
+    // Persist only the updated team, not the entire game
+    state
+        .persist_team(game_id, team_id, updated_team.clone())
+        .await?;
+
     let score = updated_team.score;
     sse_events::broadcast_score_adjustment(state, team_id, updated_team);
 
@@ -672,7 +677,7 @@ pub async fn create_team(
     let buzzer_id = sanitize_optional_buzzer(buzzer_input.unwrap_or_default())?;
     let config = state.config();
 
-    let summary = state
+    let (game_id, team_id, team) = state
         .with_current_game_mut(move |game| {
             if let Some(ref buzzer) = buzzer_id {
                 assert_unique_buzzer(game, None, buzzer)?;
@@ -684,11 +689,15 @@ pub async fn create_team(
                 score,
                 color_input.map(Into::into),
             );
-            Ok(TeamSummary::from((team_id, team)))
+            Ok((game.id, team_id, team))
         })
         .await?;
 
-    state.persist_current_game().await?;
+    // Persist game metadata (including updated team_ids list) and the new team separately for efficiency
+    state.persist_current_game_without_teams().await?;
+    state.persist_team(game_id, team_id, team.clone()).await?;
+
+    let summary = TeamSummary::from((team_id, team));
     sse_events::broadcast_team_created(state, summary.clone());
 
     Ok(summary)
@@ -722,7 +731,7 @@ pub async fn update_team(
 
     let buzzer_update = buzzer_id.map(sanitize_optional_buzzer).transpose()?;
 
-    let summary = state
+    let (game_id, updated_team) = state
         .with_current_game_mut(move |game| {
             if let Some(Some(ref buzzer)) = buzzer_update {
                 assert_unique_buzzer(game, Some(team_id), buzzer)?;
@@ -743,12 +752,18 @@ pub async fn update_team(
             if let Some(color_update) = color {
                 team.color = color_update.into();
             }
+            team.updated_at = std::time::SystemTime::now();
 
-            Ok(TeamSummary::from((team_id, team.clone())))
+            Ok((game.id, team.clone()))
         })
         .await?;
 
-    state.persist_current_game().await?;
+    // Persist only the updated team, not the entire game
+    state
+        .persist_team(game_id, team_id, updated_team.clone())
+        .await?;
+
+    let summary = TeamSummary::from((team_id, updated_team));
     sse_events::broadcast_team_updated(state, summary.clone());
 
     Ok(summary)
@@ -758,7 +773,7 @@ pub async fn update_team(
 pub async fn delete_team(state: &SharedState, team_id: Uuid) -> Result<(), ServiceError> {
     let prep_status = ensure_prep_phase(state).await?;
 
-    let roster = state
+    let (game_id, roster) = state
         .with_current_game_mut(move |game| {
             if game.teams.shift_remove(&team_id).is_none() {
                 return Err(ServiceError::NotFound(format!(
@@ -766,7 +781,7 @@ pub async fn delete_team(state: &SharedState, team_id: Uuid) -> Result<(), Servi
                 )));
             }
 
-            Ok(game.teams.clone())
+            Ok((game.id, game.teams.clone()))
         })
         .await?;
 
@@ -777,7 +792,10 @@ pub async fn delete_team(state: &SharedState, team_id: Uuid) -> Result<(), Servi
         }
     };
 
-    state.persist_current_game().await?;
+    // Persist game metadata (updated team_ids list) and delete the team document separately for efficiency
+    state.persist_current_game_without_teams().await?;
+    state.delete_team(game_id, team_id).await?;
+
     sse_events::broadcast_team_deleted(state, team_id);
     if let Some(pairing_progress) = pairing_progress {
         handle_pairing_progress(state, pairing_progress).await?;
@@ -831,7 +849,7 @@ pub async fn start_pairing(
     )
     .await?;
 
-    state.persist_current_game().await?;
+    state.persist_current_game_without_teams().await?;
     sse_events::broadcast_pairing_waiting(state, first_team_id);
 
     Ok(())
@@ -848,23 +866,41 @@ pub async fn abort_pairing(state: &SharedState) -> Result<Vec<TeamSummary>, Serv
         }
     }
 
-    let roster =
+    let (game_id, roster, modified_teams) =
         run_transition_with_broadcast(state, GameEvent::PairingFinished, move || async move {
             let session = state
                 .pairing_session()
                 .await
                 .ok_or_else(|| ServiceError::InvalidState("no pairing session is active".into()))?;
             let snapshot = session.snapshot;
+
             state
                 .with_current_game_mut(move |game| {
-                    game.teams = snapshot;
-                    Ok(game.teams.clone())
+                    // Identify teams that changed during pairing by comparing buzzer_ids
+                    let mut modified_teams = Vec::new();
+
+                    for (team_id, snapshot_team) in snapshot.iter() {
+                        if let Some(current_team) = game.teams.get(team_id) {
+                            if current_team.buzzer_id != snapshot_team.buzzer_id {
+                                modified_teams.push((*team_id, snapshot_team.clone()));
+                            }
+                        }
+                    }
+
+                    let game_id = game.id;
+                    game.teams = snapshot.clone();
+                    Ok((game_id, game.teams.clone(), modified_teams))
                 })
                 .await
         })
         .await?;
 
-    state.persist_current_game().await?;
+    // Persist game metadata and only the teams that were modified during pairing
+    state.persist_current_game_without_teams().await?;
+    for (team_id, team) in modified_teams {
+        state.persist_team(game_id, team_id, team).await?;
+    }
+
     let teams = roster.clone().into_iter().map(Into::into).collect();
     sse_events::broadcast_pairing_restored(state, roster);
 

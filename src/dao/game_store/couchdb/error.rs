@@ -62,4 +62,13 @@ pub enum CouchDaoError {
         #[source]
         source: serde_json::Error,
     },
+    /// Some required team documents are missing.
+    #[error("missing team documents for game `{game_id}`, team IDs: {team_ids:?}")]
+    MissingTeams {
+        game_id: String,
+        team_ids: Vec<uuid::Uuid>,
+    },
+    /// Failed to parse a document ID into UUIDs.
+    #[error("invalid document ID `{doc_id}`: {kind}")]
+    InvalidDocId { doc_id: String, kind: &'static str },
 }
