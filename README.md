@@ -649,7 +649,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [ ] Fix error when too many score adjust are requested :
    - [x] Re-model the data to avoid hotspots: separate Team from Game DB documents
    - [x] Coordinate persistence operations with locking and throttling
-   - [ ] Optimistic-retry for CouchDB calls (& MongoDB ?)
+   - [x] Optimistic-retry for some CouchDB write operations
 - [ ] On a buzzer reconnexion, send back its pattern
 - [ ] If a buzzer enters inhibited mode, send the information to SSE streams (public & admin)
 - [ ] Better management for panics & expects

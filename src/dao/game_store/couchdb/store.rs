@@ -32,16 +32,55 @@ pub struct CouchGameStore {
 }
 
 impl CouchGameStore {
+    /// Execute an operation with optimistic retry on CouchDB conflict (409).
+    ///
+    /// Uses exponential backoff to handle concurrent write conflicts.
+    /// This pattern is appropriate for operations where:
+    /// - Conflicts are expected during normal operation
+    /// - The operation can be safely retried with fresh data
+    /// - The semantic intent remains valid despite conflicts
+    async fn retry_on_conflict<F, Fut, T>(&self, operation: F) -> CouchResult<T>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = CouchResult<T>>,
+    {
+        const MAX_ATTEMPTS: usize = 5;
+
+        for attempt in 1..=MAX_ATTEMPTS {
+            match operation().await {
+                Ok(result) => return Ok(result),
+                Err(e) => match &e {
+                    CouchDaoError::RequestStatus { status, .. }
+                        if *status == StatusCode::CONFLICT =>
+                    {
+                        if attempt >= MAX_ATTEMPTS {
+                            return Err(e);
+                        }
+                        // Exponential backoff: 50ms, 100ms, 200ms, 400ms
+                        let backoff = std::time::Duration::from_millis(50 * (1 << (attempt - 1)));
+                        tokio::time::sleep(backoff).await;
+                    }
+                    _ => return Err(e),
+                },
+            }
+        }
+        unreachable!()
+    }
+
     /// Save a team document with optimistic retry on conflict.
     async fn save_team_document(&self, game_id: Uuid, team: &TeamEntity) -> CouchResult<()> {
         let doc_id = team_doc_id(game_id, team.id);
-        let rev = self
-            .get_document::<CouchTeamDocument>(&doc_id)
-            .await?
-            .and_then(|doc| doc.rev);
-        let doc: CouchTeamDocument = (game_id, team.clone(), rev).into();
+        let team = team.clone();
 
-        self.put_document(&doc_id, &doc).await
+        self.retry_on_conflict(|| async {
+            let rev = self
+                .get_document::<CouchTeamDocument>(&doc_id)
+                .await?
+                .and_then(|doc| doc.rev);
+            let doc: CouchTeamDocument = (game_id, team.clone(), rev).into();
+            self.put_document(&doc_id, &doc).await
+        })
+        .await
     }
 
     /// Delete all team documents for a game.
@@ -348,17 +387,21 @@ impl CouchGameStore {
         Ok(documents)
     }
 
-    /// Helper to persist the game document.
+    /// Helper to persist the game document with optimistic retry on conflict.
     /// Extracts team IDs from the GameEntity and fetches the current revision
     /// automatically to ensure optimistic concurrency.
     async fn save_game_document(&self, game: GameEntity) -> CouchResult<()> {
         let doc_id = game_doc_id(game.id);
-        let rev = self
-            .get_document::<CouchGameDocument>(&doc_id)
-            .await?
-            .and_then(|doc| doc.rev);
-        let doc: CouchGameDocument = (game, rev).into();
-        self.put_document(&doc_id, &doc).await
+
+        self.retry_on_conflict(|| async {
+            let rev = self
+                .get_document::<CouchGameDocument>(&doc_id)
+                .await?
+                .and_then(|doc| doc.rev);
+            let doc: CouchGameDocument = (game.clone(), rev).into();
+            self.put_document(&doc_id, &doc).await
+        })
+        .await
     }
 }
 
@@ -409,17 +452,23 @@ impl GameStore for CouchGameStore {
             store.save_game_document(game).await.map_err(Into::into)
         })
     }
-    /// Persist a [`PlaylistEntity`] into CouchDB.
+    /// Persist a [`PlaylistEntity`] into CouchDB with optimistic retry on conflict.
     fn save_playlist(&self, playlist: PlaylistEntity) -> BoxFuture<'static, StorageResult<()>> {
         let store = self.clone();
         Box::pin(async move {
             let doc_id = playlist_doc_id(playlist.id);
-            let rev = store
-                .get_document::<CouchPlaylistDocument>(&doc_id)
-                .await?
-                .and_then(|doc| doc.rev);
-            let doc: CouchPlaylistDocument = (playlist, rev).into();
-            store.put_document(&doc_id, &doc).await.map_err(Into::into)
+
+            store
+                .retry_on_conflict(|| async {
+                    let rev = store
+                        .get_document::<CouchPlaylistDocument>(&doc_id)
+                        .await?
+                        .and_then(|doc| doc.rev);
+                    let doc: CouchPlaylistDocument = (playlist.clone(), rev).into();
+                    store.put_document(&doc_id, &doc).await
+                })
+                .await
+                .map_err(Into::into)
         })
     }
 
