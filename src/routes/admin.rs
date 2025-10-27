@@ -14,8 +14,9 @@ use crate::{
         admin::{
             ActionResponse, AnswerValidationRequest, CreateGameQuery, CreateGameRequest,
             CreateTeamRequest, FieldsFoundResponse, GameListItem, LoadGameQuery, MarkFieldRequest,
-            NextSongResponse, PlaylistListItem, ScoreAdjustmentRequest, ScoreUpdateResponse,
-            StartGameResponse, StartPairingRequest, StopGameResponse, UpdateTeamRequest,
+            NextSongResponse, NoQuery, PlaylistListItem, ScoreAdjustmentRequest,
+            ScoreUpdateResponse, StartGameResponse, StartPairingRequest, StopGameResponse,
+            UpdateTeamRequest,
         },
         game::{
             CreateGameWithPlaylistRequest, GameSummary, PlaylistInput, PlaylistSummary, TeamSummary,
@@ -69,6 +70,7 @@ pub fn router(state: SharedState) -> Router<SharedState> {
 )]
 pub async fn list_games(
     State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
 ) -> Result<Json<Vec<GameListItem>>, AppError> {
     Ok(Json(admin_service::list_games(&state).await?))
 }
@@ -85,6 +87,7 @@ pub async fn list_games(
 pub async fn get_game_by_id(
     State(state): State<SharedState>,
     Path(id): Path<Uuid>,
+    Query(_no_query): Query<NoQuery>,
 ) -> Result<Json<GameSummary>, AppError> {
     Ok(Json(admin_service::get_game_by_id(&state, id).await?))
 }
@@ -101,6 +104,7 @@ pub async fn get_game_by_id(
 pub async fn delete_game(
     State(state): State<SharedState>,
     Path(id): Path<Uuid>,
+    Query(_no_query): Query<NoQuery>,
 ) -> Result<StatusCode, AppError> {
     admin_service::delete_game(&state, id).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -116,6 +120,7 @@ pub async fn delete_game(
 )]
 pub async fn list_playlists(
     State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
 ) -> Result<Json<Vec<PlaylistListItem>>, AppError> {
     Ok(Json(admin_service::list_playlists(&state).await?))
 }
@@ -131,6 +136,7 @@ pub async fn list_playlists(
 )]
 pub async fn create_playlist(
     State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
     Json(payload): Json<PlaylistInput>,
 ) -> Result<Json<PlaylistSummary>, AppError> {
     Ok(Json(admin_service::create_playlist(&state, payload).await?))
@@ -205,6 +211,7 @@ pub async fn create_game(
 )]
 pub async fn start_game(
     State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
 ) -> Result<Json<StartGameResponse>, AppError> {
     Ok(Json(admin_service::start_game(&state).await?))
 }
@@ -219,6 +226,7 @@ pub async fn start_game(
 )]
 pub async fn pause_game(
     State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
 ) -> Result<Json<ActionResponse>, AppError> {
     Ok(Json(admin_service::pause_game(&state).await?))
 }
@@ -233,6 +241,7 @@ pub async fn pause_game(
 )]
 pub async fn resume_game(
     State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
 ) -> Result<Json<ActionResponse>, AppError> {
     Ok(Json(admin_service::resume_game(&state).await?))
 }
@@ -247,6 +256,7 @@ pub async fn resume_game(
 )]
 pub async fn reveal_song(
     State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
 ) -> Result<Json<ActionResponse>, AppError> {
     Ok(Json(admin_service::reveal(&state).await?))
 }
@@ -261,6 +271,7 @@ pub async fn reveal_song(
 )]
 pub async fn next_song(
     State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
 ) -> Result<Json<NextSongResponse>, AppError> {
     Ok(Json(admin_service::next_song(&state).await?))
 }
@@ -275,6 +286,7 @@ pub async fn next_song(
 )]
 pub async fn stop_game(
     State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
 ) -> Result<Json<StopGameResponse>, AppError> {
     Ok(Json(admin_service::stop_game(&state).await?))
 }
@@ -287,7 +299,10 @@ pub async fn stop_game(
     params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     responses((status = 200, description = "Game ended", body = ActionResponse))
 )]
-pub async fn end_game(State(state): State<SharedState>) -> Result<Json<ActionResponse>, AppError> {
+pub async fn end_game(
+    State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
+) -> Result<Json<ActionResponse>, AppError> {
     Ok(Json(admin_service::end_game(&state).await?))
 }
 
@@ -302,6 +317,7 @@ pub async fn end_game(State(state): State<SharedState>) -> Result<Json<ActionRes
 )]
 pub async fn mark_field_found(
     State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
     Json(payload): Json<MarkFieldRequest>,
 ) -> Result<Json<FieldsFoundResponse>, AppError> {
     let found_fields = admin_service::mark_field_found(&state, payload).await?;
@@ -319,6 +335,7 @@ pub async fn mark_field_found(
 )]
 pub async fn validate_answer(
     State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
     Json(payload): Json<AnswerValidationRequest>,
 ) -> Result<Json<ActionResponse>, AppError> {
     Ok(Json(admin_service::validate_answer(&state, payload).await?))
@@ -337,6 +354,7 @@ pub async fn validate_answer(
 pub async fn adjust_score(
     State(state): State<SharedState>,
     Path(id): Path<Uuid>,
+    Query(_no_query): Query<NoQuery>,
     Json(payload): Json<ScoreAdjustmentRequest>,
 ) -> Result<Json<ScoreUpdateResponse>, AppError> {
     Ok(Json(
@@ -354,6 +372,7 @@ pub async fn adjust_score(
 )]
 pub async fn create_team(
     State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
     Json(payload): Json<CreateTeamRequest>,
 ) -> Result<Json<TeamSummary>, AppError> {
     let summary = admin_service::create_team(&state, payload).await?;
@@ -372,6 +391,7 @@ pub async fn create_team(
 pub async fn update_team(
     State(state): State<SharedState>,
     Path(id): Path<Uuid>,
+    Query(_no_query): Query<NoQuery>,
     Json(payload): Json<UpdateTeamRequest>,
 ) -> Result<Json<TeamSummary>, AppError> {
     let summary = admin_service::update_team(&state, id, payload).await?;
@@ -389,6 +409,7 @@ pub async fn update_team(
 pub async fn delete_team(
     State(state): State<SharedState>,
     Path(id): Path<Uuid>,
+    Query(_no_query): Query<NoQuery>,
 ) -> Result<StatusCode, AppError> {
     admin_service::delete_team(&state, id).await?;
     Ok(StatusCode::NO_CONTENT)
@@ -404,6 +425,7 @@ pub async fn delete_team(
 )]
 pub async fn start_pairing(
     State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
     Json(payload): Json<StartPairingRequest>,
 ) -> Result<StatusCode, AppError> {
     admin_service::start_pairing(&state, payload).await?;
@@ -419,6 +441,7 @@ pub async fn start_pairing(
 )]
 pub async fn abort_pairing(
     State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
 ) -> Result<Json<Vec<TeamSummary>>, AppError> {
     let roster = admin_service::abort_pairing(&state).await?;
     Ok(Json(roster))

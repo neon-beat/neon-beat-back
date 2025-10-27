@@ -289,7 +289,7 @@ stateDiagram-v2
    - Song URL
    - "Point fields" are fields to find for the song, that can give points to a team: for example, song name and artist (this list of field is dynamic and not empty)
    - "Bonus point fields" are optional fields to find for the song, that can give bonus points to a team (this list of field is dynamic and may be empty)
-   - During game bootstrap the playlist song order is shuffled once to create a random play sequence; persisted games must provide the same identifiers to guarantee consistency.
+   - During game creation/loading, the playlist song order can be optionally shuffled via the `shuffle` query parameter; if not shuffled, the original JSON order is preserved. Once persisted, games maintain their defined song order across restarts.
 - **Game bootstrap**: Game can be created or loaded (from database) during the idle state:
    - the game contains a list of teams (teams have a unique buzzer, a name and a score)
    - the game references a persisted playlist entity (shared across games) which is embedded into the runtime session when the game starts [**WARNING**: the game considers currently that the playlist doesn't change !]
@@ -297,11 +297,11 @@ stateDiagram-v2
    - new Game+ behaviour: if a playlist was completed in a prior game session, starting a this game session will treat it as a fresh run.
 - **State machine execution**: Gameplay transitions follow the diagram above (`Game state flow`), persisting progress and orchestrating pauses, reveals, and scoring.
 - **Admin controls (REST)**:
-   - create/load games return a `GameSummary` payload bundling teams, shuffled playlist ordering, and timestamps
+   - create/load games return a `GameSummary` payload bundling teams, playlist ordering, and timestamps
+   - optionally shuffle the playlist when creating or loading a game via `?shuffle=true` query parameter (e.g., `POST /admin/games?shuffle=true`, `POST /admin/games/{id}/load?shuffle=true`)
    - pause the current song
    - resume the current song
    - add/remove points to a team
-   - optionally shuffle the playlist when starting a game via `POST /admin/game/start?shuffle=true` (only if the playlist has not started or was completed)
    - update team metadata (buzzer id, name, score)
    - reveal the current song
    - mark a field as "found"
@@ -727,14 +727,13 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
    - [x] Debounce persistence operations on game store
 - [x] Return an error if shuffle is requested but not possible
 - [x] Shuffle on `POST /admin/games`, `POST /admin/games/with-playlist` and also (but only if game is not started or has a completed playlist) `POST /admin/games/{id}/load`
-- [ ] Reject unknown/unexpected fields for query/path params with `#[serde(deny_unknown_fields)]`
-- [ ] Bugfix : an admin SSE WiFi deconnexion seems to lock the backend
-- [ ] On a buzzer reconnexion, send back its pattern
+- [x] Reject unknown/unexpected fields for query/path params with `#[serde(deny_unknown_fields)]`
+- [ ] Do not make a thread fail if a message could not be sent to a buzzer (retry it later)
+- [ ] On a buzzer reconnexion, send back its pattern (and improve reconexion mechanisms)
+- [ ] Remove buzzer_id from TeamEntity
 - [ ] Be able to reveal during Pause phase
 - [ ] Add another Pause phase between Reveal and Playing
 - [ ] If a buzzer enters inhibited mode, send the information to SSE streams (public & admin)
-- [ ] Return errors if path or query parameter is not managed
-Erreur si param non attendu ?
 - [ ] Better management for panics & expects
 - [ ] Less info logs (only connected/disconnected)
 - [ ] Improve error codes
@@ -758,6 +757,7 @@ Erreur si param non attendu ?
 - [ ] Update `game_store` value of `AppState ` and send False to `degraded` watcher each time a GameStore function returns a connection error ?
 - [ ] Remove useless features of dependencies if found
 - [ ] Implement tests
+- [ ] Bugfix ? An admin SSE WiFi deconnexion seems to lock the backend ?
 
 ## Questions
 

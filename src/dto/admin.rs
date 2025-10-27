@@ -40,16 +40,38 @@ pub struct CreateGameRequest {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateGameQuery {
     #[serde(default)]
     pub shuffle: bool,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LoadGameQuery {
     #[serde(default)]
     pub shuffle: bool,
 }
+
+/// Rejects any query parameters by failing deserialization on unknown fields.
+///
+/// Used for routes that should not accept any query parameters. When a client
+/// provides any query parameter to a route using this type, Axum will return
+/// a `400 Bad Request` with a descriptive serde error message.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// pub async fn my_handler(
+///     Query(_no_query): Query<NoQuery>,
+/// ) -> Result<Json<Response>, ServiceError> {
+///     // This route rejects any query parameters
+///     Ok(Json(response))
+/// }
+/// ```
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct NoQuery {}
 
 /// Classifies the type of field discovered during gameplay.
 #[derive(Debug, Deserialize, ToSchema)]

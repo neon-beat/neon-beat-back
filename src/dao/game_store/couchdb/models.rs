@@ -228,7 +228,7 @@ impl From<(Uuid, TeamEntity, Option<String>)> for CouchTeamDocument {
             id: team_doc_id(game_id, team.id),
             rev,
             team: TeamBody {
-                game_id: game_id,
+                game_id,
                 team_id: team.id,
                 name: team.name,
                 score: team.score,

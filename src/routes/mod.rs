@@ -1,4 +1,9 @@
-use axum::Router;
+use axum::{
+    Router,
+    http::StatusCode,
+    response::{IntoResponse, Json},
+};
+use serde_json::json;
 
 use crate::state::SharedState;
 
@@ -19,5 +24,20 @@ pub fn router(state: SharedState) -> Router<()> {
 
     let docs_router = docs::router(state.clone());
 
-    api_router.merge(docs_router).with_state(state)
+    api_router
+        .merge(docs_router)
+        .fallback(fallback_handler)
+        .with_state(state)
+}
+
+/// Fallback handler for routes that don't match any defined endpoints.
+/// Returns a 404 Not Found with a JSON error message.
+async fn fallback_handler() -> impl IntoResponse {
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({
+            "error": "Not Found",
+            "message": "The requested resource does not exist"
+        })),
+    )
 }
