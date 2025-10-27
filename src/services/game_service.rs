@@ -1,6 +1,7 @@
 use std::{collections::HashSet, time::SystemTime};
 
 use indexmap::IndexMap;
+use rand::{rng, seq::SliceRandom};
 use uuid::Uuid;
 
 use crate::{
@@ -55,6 +56,7 @@ pub async fn create_game(
     teams: Vec<TeamInput>,
     playlist_id: Uuid,
     playlist: Option<Playlist>,
+    shuffle_playlist: bool,
 ) -> Result<GameSummary, ServiceError> {
     ensure_idle(state).await?;
     let config = state.config();
@@ -84,7 +86,7 @@ pub async fn create_game(
         ));
     }
 
-    let game = GameSession::new(name, teams, playlist);
+    let game = GameSession::new(name, teams, playlist, shuffle_playlist);
     if game.playlist_song_order.is_empty() {
         panic!("playlist_song_order should not be empty")
     };
@@ -106,8 +108,42 @@ pub async fn create_game(
 }
 
 /// Load an existing game from the database into the shared state.
-pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, ServiceError> {
+pub async fn load_game(
+    state: &SharedState,
+    id: Uuid,
+    shuffle_playlist: bool,
+) -> Result<GameSummary, ServiceError> {
     ensure_idle(state).await?;
+
+    let (current_song_index, playlist_length, current_song_found) = state
+        .with_current_game(|game| {
+            Ok((
+                game.current_song_index,
+                game.playlist_song_order.len(),
+                game.current_song_found,
+            ))
+        })
+        .await?;
+    let is_playlist_in_progress = if let Some(current_song_index) = current_song_index {
+        if current_song_found && current_song_index >= playlist_length - 1 {
+            // Playlist was completed in the previous session
+            false
+        } else if !current_song_found && current_song_index == 0 {
+            // Playlist has not been started in the previous session
+            false
+        } else {
+            // Playlist is in progress
+            true
+        }
+    } else {
+        // Playlist was completed in the previous session
+        false
+    };
+    if shuffle_playlist && is_playlist_in_progress {
+        return Err(ServiceError::InvalidInput(
+            "shuffle parameter cannot be used: game is already in progress".into(),
+        ));
+    }
 
     let store = state.require_game_store().await?;
 
@@ -133,7 +169,14 @@ pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, Ser
 
     validate_persisted_game(&game, &playlist)?;
 
-    let game_session: GameSession = (game, playlist).into();
+    let mut game_session: GameSession = (game, playlist).into();
+
+    if shuffle_playlist {
+        let mut rng = rng();
+        game_session.playlist_song_order.shuffle(&mut rng);
+        game_session.updated_at = SystemTime::now();
+    };
+
     state
         .with_current_game_slot_mut(|slot| {
             *slot = Some(game_session.clone());
@@ -142,6 +185,10 @@ pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, Ser
 
     // Clear any stale team persistence metadata from previous game
     state.clear_team_metadata();
+
+    if shuffle_playlist {
+        state.persist_current_game_without_teams().await?;
+    }
 
     sse_events::broadcast_game_session(state, &game_session);
 

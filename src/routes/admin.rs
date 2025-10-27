@@ -12,9 +12,9 @@ use uuid::Uuid;
 use crate::{
     dto::{
         admin::{
-            ActionResponse, AnswerValidationRequest, CreateGameRequest, CreateTeamRequest,
-            FieldsFoundResponse, GameListItem, MarkFieldRequest, NextSongResponse,
-            PlaylistListItem, ScoreAdjustmentRequest, ScoreUpdateResponse, StartGameQuery,
+            ActionResponse, AnswerValidationRequest, CreateGameQuery, CreateGameRequest,
+            CreateTeamRequest, FieldsFoundResponse, GameListItem, LoadGameQuery, MarkFieldRequest,
+            NextSongResponse, PlaylistListItem, ScoreAdjustmentRequest, ScoreUpdateResponse,
             StartGameResponse, StartPairingRequest, StopGameResponse, UpdateTeamRequest,
         },
         game::{
@@ -142,14 +142,18 @@ pub async fn create_playlist(
     path = "/admin/games/{id}/load",
     tag = "admin",
     params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream"),
-    ("id" = String, Path, description = "Identifier of the game to load")),
+    ("id" = String, Path, description = "Identifier of the game to load"),
+    ("shuffle" = Option<bool>, Query, description = "Shuffle playlist (default false) ; only applies when loading a game that has not yet started or whose playlist is completely played")),
     responses((status = 200, description = "Game loaded", body = GameSummary))
 )]
 pub async fn load_game(
     State(state): State<SharedState>,
     Path(id): Path<Uuid>,
+    Query(options): Query<LoadGameQuery>,
 ) -> Result<Json<GameSummary>, AppError> {
-    Ok(Json(admin_service::load_game(&state, id).await?))
+    Ok(Json(
+        admin_service::load_game(&state, id, options.shuffle).await?,
+    ))
 }
 
 /// Create a bespoke game definition under admin control.
@@ -157,15 +161,19 @@ pub async fn load_game(
     post,
     path = "/admin/games/with-playlist",
     tag = "admin",
-    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream"),
+    ("shuffle" = Option<bool>, Query, description = "Shuffle playlist (default false)")),
     request_body = CreateGameWithPlaylistRequest,
     responses((status = 200, description = "Game created", body = GameSummary))
 )]
 pub async fn create_game_with_playlist(
     State(state): State<SharedState>,
+    Query(options): Query<CreateGameQuery>,
     Json(payload): Json<CreateGameWithPlaylistRequest>,
 ) -> Result<Json<GameSummary>, AppError> {
-    Ok(Json(admin_service::create_game(&state, payload).await?))
+    Ok(Json(
+        admin_service::create_game(&state, payload, options.shuffle).await?,
+    ))
 }
 
 /// Generate a game using an existing playlist as the source material.
@@ -173,15 +181,17 @@ pub async fn create_game_with_playlist(
     post,
     path = "/admin/games",
     tag = "admin",
-    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream"),
+    ("shuffle" = Option<bool>, Query, description = "Shuffle playlist (default false)")),
     request_body = CreateGameRequest,
     responses((status = 200, description = "Game created from playlist", body = GameSummary))
 )]
 pub async fn create_game(
     State(state): State<SharedState>,
+    Query(options): Query<CreateGameQuery>,
     Json(payload): Json<CreateGameRequest>,
 ) -> Result<Json<GameSummary>, AppError> {
-    let game = admin_service::create_game_from_playlist(&state, payload).await?;
+    let game = admin_service::create_game_from_playlist(&state, payload, options.shuffle).await?;
     Ok(Json(game))
 }
 
@@ -190,17 +200,13 @@ pub async fn create_game(
     post,
     path = "/admin/game/start",
     tag = "admin",
-    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream"),
-    ("shuffle" = Option<bool>, Query, description = "Shuffle playlist before starting (default false)")),
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     responses((status = 200, description = "Game started", body = StartGameResponse))
 )]
 pub async fn start_game(
     State(state): State<SharedState>,
-    Query(options): Query<StartGameQuery>,
 ) -> Result<Json<StartGameResponse>, AppError> {
-    Ok(Json(
-        admin_service::start_game(&state, options.shuffle).await?,
-    ))
+    Ok(Json(admin_service::start_game(&state).await?))
 }
 
 /// Pause the current game flow, freezing timers and buzzers.

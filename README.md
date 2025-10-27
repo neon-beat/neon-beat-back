@@ -726,6 +726,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
    - [x] Optimistic-retry for some CouchDB write operations
    - [x] Debounce persistence operations on game store
 - [x] Return an error if shuffle is requested but not possible
+- [x] Shuffle on `POST /admin/games`, `POST /admin/games/with-playlist` and also (but only if game is not started or has a completed playlist) `POST /admin/games/{id}/load`
 - [ ] Reject unknown/unexpected fields for query/path params with `#[serde(deny_unknown_fields)]`
 - [ ] Bugfix : an admin SSE WiFi deconnexion seems to lock the backend
 - [ ] On a buzzer reconnexion, send back its pattern
