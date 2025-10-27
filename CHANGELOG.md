@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.7.1] - Shuffle playlist at game creation/loading (instead of starting)
+
+- fix: Shuffle on `POST /admin/games`, `POST /admin/games/with-playlist` and also (but only if game is not started or has a completed playlist) `POST /admin/games/{id}/load` (instead of `POST /admin/games/start`)
+- fix: Return an error if shuffle is requested but not possible
+
 ## [v0.7.0] - Persistence Layer Improvements
 
 ### Added

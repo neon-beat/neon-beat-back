@@ -40,7 +40,13 @@ pub struct CreateGameRequest {
 }
 
 #[derive(Deserialize)]
-pub struct StartGameQuery {
+pub struct CreateGameQuery {
+    #[serde(default)]
+    pub shuffle: bool,
+}
+
+#[derive(Deserialize)]
+pub struct LoadGameQuery {
     #[serde(default)]
     pub shuffle: bool,
 }

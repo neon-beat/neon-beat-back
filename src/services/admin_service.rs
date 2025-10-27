@@ -2,7 +2,6 @@
 //! Storage persistence, in-memory state updates, and state-machine transitions
 //! while honouring the single-transition-at-a-time requirement.
 
-use rand::{rng, seq::SliceRandom};
 use std::time::SystemTime;
 use tracing::{debug, warn};
 use uuid::Uuid;
@@ -175,9 +174,13 @@ pub async fn create_playlist(
 // ---------------------------------------------------------------------------
 
 /// Load a persisted game, apply the appropriate SSE event and return the summary.
-pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, ServiceError> {
+pub async fn load_game(
+    state: &SharedState,
+    id: Uuid,
+    shuffle_playlist: bool,
+) -> Result<GameSummary, ServiceError> {
     run_transition_with_broadcast(state, GameEvent::StartGame, move || async move {
-        game_service::load_game(state, id).await
+        game_service::load_game(state, id, shuffle_playlist).await
     })
     .await
 }
@@ -186,6 +189,7 @@ pub async fn load_game(state: &SharedState, id: Uuid) -> Result<GameSummary, Ser
 pub async fn create_game(
     state: &SharedState,
     request: CreateGameWithPlaylistRequest,
+    shuffle_playlist: bool,
 ) -> Result<GameSummary, ServiceError> {
     run_transition_with_broadcast(state, GameEvent::StartGame, move || async move {
         let (_playlist_summary, playlist_model) =
@@ -196,6 +200,7 @@ pub async fn create_game(
             request.teams,
             playlist_model.id,
             Some(playlist_model),
+            shuffle_playlist,
         )
         .await
     })
@@ -206,6 +211,7 @@ pub async fn create_game(
 pub async fn create_game_from_playlist(
     state: &SharedState,
     request: CreateGameRequest,
+    shuffle_playlist: bool,
 ) -> Result<GameSummary, ServiceError> {
     run_transition_with_broadcast(state, GameEvent::StartGame, move || async move {
         game_service::create_game(
@@ -214,6 +220,7 @@ pub async fn create_game_from_playlist(
             request.teams,
             request.playlist_id,
             None,
+            shuffle_playlist,
         )
         .await
     })
@@ -221,10 +228,7 @@ pub async fn create_game_from_playlist(
 }
 
 /// Move the admin-controlled game into the running phase and expose the first song.
-pub async fn start_game(
-    state: &SharedState,
-    shuffle: bool,
-) -> Result<StartGameResponse, ServiceError> {
+pub async fn start_game(state: &SharedState) -> Result<StartGameResponse, ServiceError> {
     if let GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Ready)) =
         state.state_machine_phase().await
     {
@@ -256,33 +260,6 @@ pub async fn start_game(
                 Ok(())
             })
             .await?;
-    }
-
-    let shuffled = if shuffle {
-        state
-            .with_current_game_mut(|game| {
-                // Shuffle only if the playlist has not started or was completed
-                if matches!(game.current_song_index, None | Some(0)) {
-                    if game.playlist_song_order.len() > 1 {
-                        let mut rng = rng();
-                        game.playlist_song_order.shuffle(&mut rng);
-                        game.updated_at = SystemTime::now();
-                        Ok(Some(game.clone()))
-                    } else {
-                        Ok(None)
-                    }
-                } else {
-                    Ok(None)
-                }
-            })
-            .await?
-    } else {
-        None
-    };
-
-    if let Some(snapshot) = shuffled {
-        state.persist_current_game_without_teams().await?;
-        sse_events::broadcast_game_session(state, &snapshot);
     }
 
     let song_summary = load_next_song(state, true)
@@ -413,7 +390,7 @@ async fn load_next_song(
         } else if start {
             Some(0) // "New Game +" if playlist was completed in the previous session
         } else {
-            None
+            None // Playlist completed
         }
     };
     let event = if start {

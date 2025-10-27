@@ -1,4 +1,5 @@
 use indexmap::IndexMap;
+use rand::{rng, seq::SliceRandom};
 use std::time::SystemTime;
 use uuid::Uuid;
 
@@ -112,10 +113,19 @@ pub struct GameSession {
 
 impl GameSession {
     /// Build a new in-memory session with the provided metadata.
-    pub fn new(name: String, teams: IndexMap<Uuid, Team>, playlist: Playlist) -> Self {
+    pub fn new(
+        name: String,
+        teams: IndexMap<Uuid, Team>,
+        playlist: Playlist,
+        shuffle_playlist: bool,
+    ) -> Self {
         let timestamp = SystemTime::now();
 
-        let playlist_song_order: Vec<u32> = playlist.songs.keys().cloned().collect();
+        let mut playlist_song_order: Vec<u32> = playlist.songs.keys().cloned().collect();
+        if shuffle_playlist {
+            let mut rng = rng();
+            playlist_song_order.shuffle(&mut rng);
+        }
 
         Self {
             id: Uuid::new_v4(),
