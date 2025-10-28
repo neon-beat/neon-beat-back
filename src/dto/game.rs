@@ -5,17 +5,20 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use utoipa::ToSchema;
 use uuid::Uuid;
+use validator::{Validate, ValidationErrors};
 
 use crate::{
-    dto::{common::TeamColorDto, format_system_time},
+    dto::{common::TeamColorDto, format_system_time, validation::validate_buzzer_id},
     state::game::{GameSession, Playlist, PointField, Song, Team},
 };
 
 /// Payload used to bootstrap a brand-new game instance.
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, ToSchema, Validate)]
 pub struct CreateGameWithPlaylistRequest {
     pub name: String,
+    #[validate(nested)]
     pub teams: Vec<TeamInput>,
+    #[validate(nested)]
     pub playlist: PlaylistInput,
 }
 
@@ -39,18 +42,46 @@ pub struct TeamInput {
     pub color: Option<TeamColorDto>,
 }
 
+impl Validate for TeamInput {
+    fn validate(&self) -> Result<(), ValidationErrors> {
+        let mut errors = ValidationErrors::new();
+
+        // Validate buzzer_id if present
+        if let Some(Some(ref id)) = self.buzzer_id {
+            if let Err(e) = validate_buzzer_id(id) {
+                errors.add("buzzer_id", e);
+            }
+        }
+
+        // Validate color if present
+        if let Some(ref color) = self.color {
+            if let Err(color_errors) = color.validate() {
+                errors.merge_self("color", Err(color_errors));
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+}
+
 /// Playlist metadata and songs supplied when bootstrapping a game.
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, ToSchema, Validate)]
 pub struct PlaylistInput {
     pub name: String,
+    #[validate(nested)]
     pub songs: Vec<SongInput>,
 }
 
 /// Song details required to populate a playlist.
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, ToSchema, Validate)]
 pub struct SongInput {
     pub starts_at_ms: usize,
     pub guess_duration_ms: usize,
+    #[validate(url)]
     pub url: String,
     pub point_fields: Vec<PointFieldInput>,
     #[serde(default)]
@@ -77,7 +108,7 @@ pub struct GameSummary {
     pub current_song_index: Option<usize>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, Serialize, ToSchema)]
 /// Public projection of a team exposed to REST/SSE clients.
 pub struct TeamSummary {
     pub id: Uuid,

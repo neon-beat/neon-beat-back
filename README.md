@@ -728,6 +728,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Return an error if shuffle is requested but not possible
 - [x] Shuffle on `POST /admin/games`, `POST /admin/games/with-playlist` and also (but only if game is not started or has a completed playlist) `POST /admin/games/{id}/load`
 - [x] Reject unknown/unexpected fields for query/path params with `#[serde(deny_unknown_fields)]`
+- [x] Add axum validation
 - [ ] Do not make a thread fail if a message could not be sent to a buzzer (retry it later)
 - [ ] On a buzzer reconnexion, send back its pattern (and improve reconexion mechanisms)
 - [ ] Remove buzzer_id from TeamEntity
@@ -744,7 +745,6 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [ ] New route: POST song hint
 - [ ] Once a team answered, it can be locked (until another team buzzes or the next song), depending on a game_start boolean parameter
 - [ ] Refactor TeamSummary (duplicate struct)
-- [ ] Add axum validation
 - [ ] Add more logs
 - [ ] Serve the OpenAPI documentation as a Github Page
 - [ ] Debounce device buzzes (~250 ms) during pairing to avoid double assigns

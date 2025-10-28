@@ -7,6 +7,7 @@ use axum::{
     response::Response,
     routing::{get, post, put},
 };
+use axum_valid::Valid;
 use uuid::Uuid;
 
 use crate::{
@@ -137,7 +138,7 @@ pub async fn list_playlists(
 pub async fn create_playlist(
     State(state): State<SharedState>,
     Query(_no_query): Query<NoQuery>,
-    Json(payload): Json<PlaylistInput>,
+    Valid(Json(payload)): Valid<Json<PlaylistInput>>,
 ) -> Result<Json<PlaylistSummary>, AppError> {
     Ok(Json(admin_service::create_playlist(&state, payload).await?))
 }
@@ -175,7 +176,7 @@ pub async fn load_game(
 pub async fn create_game_with_playlist(
     State(state): State<SharedState>,
     Query(options): Query<CreateGameQuery>,
-    Json(payload): Json<CreateGameWithPlaylistRequest>,
+    Valid(Json(payload)): Valid<Json<CreateGameWithPlaylistRequest>>,
 ) -> Result<Json<GameSummary>, AppError> {
     Ok(Json(
         admin_service::create_game(&state, payload, options.shuffle).await?,
@@ -195,7 +196,7 @@ pub async fn create_game_with_playlist(
 pub async fn create_game(
     State(state): State<SharedState>,
     Query(options): Query<CreateGameQuery>,
-    Json(payload): Json<CreateGameRequest>,
+    Valid(Json(payload)): Valid<Json<CreateGameRequest>>,
 ) -> Result<Json<GameSummary>, AppError> {
     let game = admin_service::create_game_from_playlist(&state, payload, options.shuffle).await?;
     Ok(Json(game))
@@ -373,7 +374,7 @@ pub async fn adjust_score(
 pub async fn create_team(
     State(state): State<SharedState>,
     Query(_no_query): Query<NoQuery>,
-    Json(payload): Json<CreateTeamRequest>,
+    Valid(Json(payload)): Valid<Json<CreateTeamRequest>>,
 ) -> Result<Json<TeamSummary>, AppError> {
     let summary = admin_service::create_team(&state, payload).await?;
     Ok(Json(summary))
@@ -392,7 +393,7 @@ pub async fn update_team(
     State(state): State<SharedState>,
     Path(id): Path<Uuid>,
     Query(_no_query): Query<NoQuery>,
-    Json(payload): Json<UpdateTeamRequest>,
+    Valid(Json(payload)): Valid<Json<UpdateTeamRequest>>,
 ) -> Result<Json<TeamSummary>, AppError> {
     let summary = admin_service::update_team(&state, id, payload).await?;
     Ok(Json(summary))

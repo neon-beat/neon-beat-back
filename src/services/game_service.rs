@@ -16,8 +16,6 @@ use crate::{
     },
 };
 
-const BUZZER_ID_LENGTH: usize = 12;
-
 /// Create and persist a reusable playlist definition on behalf of admins.
 pub async fn create_playlist(
     state: &SharedState,
@@ -221,8 +219,6 @@ fn build_teams(
                 .buzzer_id
                 .unwrap_or_default()
                 .as_ref()
-                .map(|id| sanitize_buzzer_id(id))
-                .transpose()?
                 .map(|id| {
                     if !seen_ids.insert(id.clone()) {
                         Err(ServiceError::InvalidInput(format!(
@@ -230,7 +226,7 @@ fn build_teams(
                             id
                         )))
                     } else {
-                        Ok(id)
+                        Ok(id.clone())
                     }
                 })
                 .transpose()?;
@@ -363,23 +359,4 @@ fn validate_persisted_game(
     }
 
     Ok(())
-}
-
-fn is_valid_buzzer_id(value: &str) -> bool {
-    value.len() == BUZZER_ID_LENGTH && value.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'))
-}
-
-/// Normalise and validate a buzzer identifier (lowercase hex, no whitespace).
-pub fn sanitize_buzzer_id(raw: &str) -> Result<String, ServiceError> {
-    let mut buzzer_id = raw.to_lowercase();
-    buzzer_id.retain(|c| !c.is_whitespace());
-
-    if !is_valid_buzzer_id(&buzzer_id) {
-        return Err(ServiceError::InvalidInput(format!(
-            "invalid buzzer id `{}`: expected {} lowercase hex characters",
-            raw, BUZZER_ID_LENGTH
-        )));
-    }
-
-    Ok(buzzer_id)
 }

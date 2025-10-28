@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use utoipa::ToSchema;
 use uuid::Uuid;
+use validator::{Validate, ValidationErrors};
 
 use crate::{
     dao::models::{GameListItemEntity, PlaylistEntity},
@@ -32,9 +33,10 @@ pub struct PlaylistListItem {
 }
 
 /// Payload describing how to spin up a game from an existing playlist definition.
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, ToSchema, Validate)]
 pub struct CreateGameRequest {
     pub name: String,
+    #[validate(nested)]
     pub teams: Vec<TeamInput>,
     pub playlist_id: Uuid,
 }
@@ -136,10 +138,22 @@ pub struct ScoreUpdateResponse {
 #[serde(transparent)]
 pub struct CreateTeamRequest(pub TeamInput);
 
+impl Validate for CreateTeamRequest {
+    fn validate(&self) -> Result<(), ValidationErrors> {
+        self.0.validate()
+    }
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 /// Request payload to update an existing team in the active game.
 #[serde(transparent)]
 pub struct UpdateTeamRequest(pub TeamInput);
+
+impl Validate for UpdateTeamRequest {
+    fn validate(&self) -> Result<(), ValidationErrors> {
+        self.0.validate()
+    }
+}
 
 #[derive(Debug, Deserialize, ToSchema)]
 /// Request payload to start a buzzer pairing session.
