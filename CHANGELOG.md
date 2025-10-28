@@ -2,10 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.8.0] - Reject unknown query param & add fallback route
+
+### Added
+- **Input validation** using `validator` crate with `axum-valid` for HTTP routes
+  - Buzzer IDs: 12 lowercase hexadecimal characters
+  - Song URLs: valid URL format
+  - Team colors: HSV saturation/value range 0.0-1.0
+  - WebSocket messages validated via `BuzzerInboundMessage::from_json_str()`
+- Fallback route handler for unmatched endpoints (404 JSON response)
+
+### Changed
+- Fix the `POST /admin/games/:id/load` route
+- HTTP routes use `Valid<Json<T>>` extractors for automatic validation
+- `BuzzerInboundMessage` no longer has `Unknown` variant (rejected during parsing)
+- Query parameters reject unknown fields via `#[serde(deny_unknown_fields)]`
+
+### Removed
+- Redundant `sanitize_buzzer_id()` validation (now handled at boundaries)
+
 ## [v0.7.1] - Shuffle playlist at game creation/loading (instead of starting)
 
-- fix: Shuffle on `POST /admin/games`, `POST /admin/games/with-playlist` and also (but only if game is not started or has a completed playlist) `POST /admin/games/{id}/load` (instead of `POST /admin/games/start`)
-- fix: Return an error if shuffle is requested but not possible
+- Shuffle on `POST /admin/games`, `POST /admin/games/with-playlist` and also (but only if game is not started or has a completed playlist) `POST /admin/games/{id}/load` (instead of `POST /admin/games/start`)
+- Return an error if shuffle is requested but not possible
 
 ## [v0.7.0] - Persistence Layer Improvements
 
