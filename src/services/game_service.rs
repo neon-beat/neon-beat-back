@@ -113,17 +113,20 @@ pub async fn load_game(
 ) -> Result<GameSummary, ServiceError> {
     ensure_idle(state).await?;
 
-    let (current_song_index, playlist_length, current_song_found) = state
-        .with_current_game(|game| {
-            Ok((
-                game.current_song_index,
-                game.playlist_song_order.len(),
-                game.current_song_found,
-            ))
-        })
-        .await?;
+    let store = state.require_game_store().await?;
+
+    let Some(game) = store.find_game(id).await? else {
+        return Err(ServiceError::NotFound(format!("game `{id}` not found")));
+    };
+
+    if game.playlist_song_order.is_empty() {
+        panic!("playlist_song_order should not be empty")
+    };
+
+    let current_song_index = game.current_song_index;
+    let current_song_found = game.current_song_found;
     let is_playlist_in_progress = if let Some(current_song_index) = current_song_index {
-        if current_song_found && current_song_index >= playlist_length - 1 {
+        if current_song_found && current_song_index >= game.playlist_song_order.len() - 1 {
             // Playlist was completed in the previous session
             false
         } else if !current_song_found && current_song_index == 0 {
@@ -143,12 +146,6 @@ pub async fn load_game(
         ));
     }
 
-    let store = state.require_game_store().await?;
-
-    let Some(game) = store.find_game(id).await? else {
-        return Err(ServiceError::NotFound(format!("game `{id}` not found")));
-    };
-
     let Some(playlist) = store.find_playlist(game.playlist_id).await? else {
         return Err(ServiceError::NotFound(format!(
             "playlist `{}` not found",
@@ -161,9 +158,6 @@ pub async fn load_game(
             "playlist must contain at least one song".into(),
         ));
     }
-    if game.playlist_song_order.is_empty() {
-        panic!("playlist_song_order should not be empty")
-    };
 
     validate_persisted_game(&game, &playlist)?;
 
