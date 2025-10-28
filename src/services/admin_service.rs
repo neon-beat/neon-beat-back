@@ -275,12 +275,10 @@ pub async fn pause_game(state: &SharedState) -> Result<ActionResponse, ServiceEr
     .await?;
     state
         .with_current_game(|game| {
-            game.teams
-                .iter()
-                .map(|(team_id, team)| {
-                    send_pattern_to_team_buzzer(state, team_id, team, BuzzerPatternPreset::Waiting)
-                })
-                .collect::<Result<Vec<_>, _>>()
+            game.teams.iter().for_each(|(team_id, team)| {
+                send_pattern_to_team_buzzer(state, team_id, team, BuzzerPatternPreset::Waiting)
+            });
+            Ok(())
         })
         .await?;
     Ok(result)
@@ -297,17 +295,15 @@ pub async fn resume_game(state: &SharedState) -> Result<ActionResponse, ServiceE
         .await?;
     state
         .with_current_game(|game| {
-            game.teams
-                .iter()
-                .map(|(team_id, team)| {
-                    send_pattern_to_team_buzzer(
-                        state,
-                        team_id,
-                        team,
-                        BuzzerPatternPreset::Playing(team.color.clone()),
-                    )
-                })
-                .collect::<Result<Vec<_>, _>>()
+            game.teams.iter().for_each(|(team_id, team)| {
+                send_pattern_to_team_buzzer(
+                    state,
+                    team_id,
+                    team,
+                    BuzzerPatternPreset::Playing(team.color.clone()),
+                )
+            });
+            Ok(())
         })
         .await?;
     Ok(result)
@@ -333,17 +329,15 @@ pub async fn reveal(state: &SharedState) -> Result<ActionResponse, ServiceError>
     .await?;
     state
         .with_current_game(|game| {
-            game.teams
-                .iter()
-                .map(|(team_id, team)| {
-                    send_pattern_to_team_buzzer(
-                        state,
-                        team_id,
-                        team,
-                        BuzzerPatternPreset::Standby(team.color.clone()),
-                    )
-                })
-                .collect::<Result<Vec<_>, _>>()
+            game.teams.iter().for_each(|(team_id, team)| {
+                send_pattern_to_team_buzzer(
+                    state,
+                    team_id,
+                    team,
+                    BuzzerPatternPreset::Standby(team.color.clone()),
+                )
+            });
+            Ok(())
         })
         .await?;
     Ok(result)
@@ -423,17 +417,15 @@ async fn load_next_song(
     if next_song_index.is_some() {
         state
             .with_current_game(|game| {
-                game.teams
-                    .iter()
-                    .map(|(team_id, team)| {
-                        send_pattern_to_team_buzzer(
-                            state,
-                            team_id,
-                            team,
-                            BuzzerPatternPreset::Playing(team.color.clone()),
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()
+                game.teams.iter().for_each(|(team_id, team)| {
+                    send_pattern_to_team_buzzer(
+                        state,
+                        team_id,
+                        team,
+                        BuzzerPatternPreset::Playing(team.color.clone()),
+                    )
+                });
+                Ok(())
             })
             .await?;
     };

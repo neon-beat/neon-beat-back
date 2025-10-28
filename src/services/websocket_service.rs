@@ -168,32 +168,35 @@ where
 }
 
 /// Send a pattern update to the buzzer associated with `team`.
+///
+/// If the team has no paired buzzer or the buzzer is not connected,
+/// logs a warning instead of returning an error.
 pub fn send_pattern_to_team_buzzer(
     state: &SharedState,
     team_id: &Uuid,
     team: &Team,
     preset: BuzzerPatternPreset,
-) -> Result<(), ServiceError> {
-    let buzzer_id = team.buzzer_id.as_ref().ok_or_else(|| {
-        ServiceError::InvalidState(format!("team `{team_id}` has no paired buzzer"))
-    })?;
-    send_pattern_to_buzzer(state, buzzer_id, preset)
+) {
+    let Some(buzzer_id) = team.buzzer_id.as_ref() else {
+        warn!(team_id = %team_id, "cannot send pattern: team has no paired buzzer");
+        return;
+    };
+    send_pattern_to_buzzer(state, buzzer_id, preset);
 }
 
 /// Send a pattern update to a buzzer.
+///
+/// If the buzzer is not connected, logs a warning instead of returning an error,
+/// allowing operations to continue even when some buzzers are unavailable.
 pub fn send_pattern_to_buzzer(
     state: &SharedState,
     buzzer_id: &String,
     preset: BuzzerPatternPreset,
-) -> Result<(), ServiceError> {
-    let tx = state
-        .buzzers()
-        .get(buzzer_id)
-        .ok_or_else(|| {
-            ServiceError::InvalidState(format!("buzzer `{buzzer_id}` is not connected"))
-        })?
-        .tx
-        .clone();
+) {
+    let Some(tx) = state.buzzers().get(buzzer_id).map(|conn| conn.tx.clone()) else {
+        warn!(buzzer_id = %buzzer_id, "cannot send pattern: buzzer is not connected");
+        return;
+    };
 
     send_message_to_websocket(
         &tx,
@@ -201,8 +204,6 @@ pub fn send_pattern_to_buzzer(
             pattern: state.buzzer_pattern(preset),
         },
     );
-
-    Ok(())
 }
 
 /// Process a buzz coming from a buzzer connection, returning whether the team can answer.
@@ -364,20 +365,19 @@ async fn handle_playing_buzz(state: &SharedState, buzzer_id: &str) -> Result<(),
     .await?;
     state
         .with_current_game(|game| {
-            game.teams
-                .iter()
-                .map(|(team_id, team)| {
-                    let team_buzzer_id = team.buzzer_id.as_ref().ok_or_else(|| {
-                        ServiceError::InvalidState(format!("team `{team_id}` has no paired buzzer"))
-                    })?;
+            for (team_id, team) in game.teams.iter() {
+                if let Some(team_buzzer_id) = team.buzzer_id.as_ref() {
                     let preset = if team_buzzer_id == buzzer_id {
                         BuzzerPatternPreset::Answering(team.color.clone())
                     } else {
                         BuzzerPatternPreset::Waiting
                     };
-                    send_pattern_to_buzzer(state, team_buzzer_id, preset)
-                })
-                .collect::<Result<Vec<_>, _>>()
+                    send_pattern_to_buzzer(state, team_buzzer_id, preset);
+                } else {
+                    warn!(team_id = %team_id, "cannot send pattern: team has no paired buzzer");
+                }
+            }
+            Ok(())
         })
         .await?;
     Ok(())
