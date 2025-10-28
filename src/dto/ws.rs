@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+use validator::ValidationError;
 
-use crate::dto::common::TeamColorDto;
+use crate::dto::{common::TeamColorDto, validation::validate_buzzer_id};
 
 #[derive(Debug, Deserialize, ToSchema)]
 /// Messages accepted from buzzer WebSocket clients.
@@ -11,17 +12,35 @@ pub enum BuzzerInboundMessage {
     Identification { id: String },
     #[serde(rename = "buzz")]
     Buzz { id: String },
-    #[serde(other)]
-    Unknown,
 }
 
 impl BuzzerInboundMessage {
-    pub fn identification_id(&self) -> Option<&str> {
+    /// Deserialize and validate a buzzer message from JSON string.
+    ///
+    /// This combines deserialization and validation into a single operation,
+    /// ensuring that the returned message is both well-formed and valid.
+    /// Returns an error if the message type is unknown or validation fails.
+    pub fn from_json_str(s: &str) -> Result<Self, BuzzerMessageError> {
+        let msg: Self = serde_json::from_str(s)?;
+        msg.validate()?;
+        Ok(msg)
+    }
+
+    /// Validates the buzzer ID for Identification and Buzz messages.
+    fn validate(&self) -> Result<(), ValidationError> {
         match self {
-            Self::Identification { id } => Some(id.as_str()),
-            _ => None,
+            Self::Identification { id } | Self::Buzz { id } => validate_buzzer_id(id),
         }
     }
+}
+
+/// Errors that can occur when parsing and validating buzzer messages.
+#[derive(Debug, thiserror::Error)]
+pub enum BuzzerMessageError {
+    #[error("invalid JSON: {0}")]
+    InvalidJson(#[from] serde_json::Error),
+    #[error("validation failed: {0}")]
+    ValidationFailed(#[from] ValidationError),
 }
 
 #[derive(Debug, Serialize, ToSchema)]

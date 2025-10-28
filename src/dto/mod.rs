@@ -8,6 +8,7 @@ pub mod health;
 pub mod phase;
 pub mod public;
 pub mod sse;
+pub mod validation;
 pub mod ws;
 
 fn format_system_time(time: SystemTime) -> String {

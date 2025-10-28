@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
+use validator::Validate;
 
 use crate::{
     dto::{game::TeamSummary, phase::VisibleGamePhase},
@@ -86,14 +87,16 @@ pub struct GamePhaseSnapshot {
     pub found_bonus_fields: Option<Vec<String>>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, ToSchema, Validate)]
 /// HSV representation shared by DTOs (REST, SSE, WS).
 pub struct TeamColorDto {
     /// Hue component (degrees).
     pub h: f32,
-    /// Saturation component.
+    /// Saturation component (0.0 to 1.0).
+    #[validate(range(min = 0.0, max = 1.0))]
     pub s: f32,
-    /// Value (brightness) component.
+    /// Value (brightness) component (0.0 to 1.0).
+    #[validate(range(min = 0.0, max = 1.0))]
     pub v: f32,
 }
 

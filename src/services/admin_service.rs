@@ -48,13 +48,6 @@ async fn ensure_prep_phase(state: &SharedState) -> Result<PrepStatus, ServiceErr
     }
 }
 
-fn sanitize_optional_buzzer(input: Option<String>) -> Result<Option<String>, ServiceError> {
-    match input {
-        Some(value) => Ok(Some(game_service::sanitize_buzzer_id(&value)?)),
-        None => Ok(None),
-    }
-}
-
 fn assert_unique_buzzer(
     game: &GameSession,
     exclude: Option<Uuid>,
@@ -651,7 +644,7 @@ pub async fn create_team(
         ));
     }
 
-    let buzzer_id = sanitize_optional_buzzer(buzzer_input.unwrap_or_default())?;
+    let buzzer_id = buzzer_input.unwrap_or_default();
     let config = state.config();
 
     let (game_id, team_id, team) = state
@@ -706,11 +699,9 @@ pub async fn update_team(
         ));
     }
 
-    let buzzer_update = buzzer_id.map(sanitize_optional_buzzer).transpose()?;
-
     let (game_id, updated_team) = state
         .with_current_game_mut(move |game| {
-            if let Some(Some(ref buzzer)) = buzzer_update {
+            if let Some(Some(ref buzzer)) = buzzer_id {
                 assert_unique_buzzer(game, Some(team_id), buzzer)?;
             }
 
@@ -720,7 +711,7 @@ pub async fn update_team(
                 .ok_or_else(|| ServiceError::NotFound(format!("team `{team_id}` not found")))?;
 
             team.name = name;
-            if let Some(buzzer) = buzzer_update.clone() {
+            if let Some(buzzer) = buzzer_id {
                 team.buzzer_id = buzzer;
             }
             if let Some(new_score) = score {

@@ -1,6 +1,7 @@
 use axum::{Json, http::StatusCode, response::IntoResponse};
 use serde::Serialize;
 use thiserror::Error;
+use validator::ValidationErrors;
 
 use crate::{
     dao::storage::StorageError,
@@ -28,6 +29,12 @@ pub enum ServiceError {
 impl From<StorageError> for ServiceError {
     fn from(err: StorageError) -> Self {
         ServiceError::Unavailable(err)
+    }
+}
+
+impl From<ValidationErrors> for AppError {
+    fn from(err: ValidationErrors) -> Self {
+        AppError::BadRequest(format!("validation failed: {}", err))
     }
 }
 

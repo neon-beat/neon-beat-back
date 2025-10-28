@@ -16,8 +16,6 @@ use crate::{
     },
 };
 
-const BUZZER_ID_LENGTH: usize = 12;
-
 /// Create and persist a reusable playlist definition on behalf of admins.
 pub async fn create_playlist(
     state: &SharedState,
@@ -115,17 +113,20 @@ pub async fn load_game(
 ) -> Result<GameSummary, ServiceError> {
     ensure_idle(state).await?;
 
-    let (current_song_index, playlist_length, current_song_found) = state
-        .with_current_game(|game| {
-            Ok((
-                game.current_song_index,
-                game.playlist_song_order.len(),
-                game.current_song_found,
-            ))
-        })
-        .await?;
+    let store = state.require_game_store().await?;
+
+    let Some(game) = store.find_game(id).await? else {
+        return Err(ServiceError::NotFound(format!("game `{id}` not found")));
+    };
+
+    if game.playlist_song_order.is_empty() {
+        panic!("playlist_song_order should not be empty")
+    };
+
+    let current_song_index = game.current_song_index;
+    let current_song_found = game.current_song_found;
     let is_playlist_in_progress = if let Some(current_song_index) = current_song_index {
-        if current_song_found && current_song_index >= playlist_length - 1 {
+        if current_song_found && current_song_index >= game.playlist_song_order.len() - 1 {
             // Playlist was completed in the previous session
             false
         } else if !current_song_found && current_song_index == 0 {
@@ -145,12 +146,6 @@ pub async fn load_game(
         ));
     }
 
-    let store = state.require_game_store().await?;
-
-    let Some(game) = store.find_game(id).await? else {
-        return Err(ServiceError::NotFound(format!("game `{id}` not found")));
-    };
-
     let Some(playlist) = store.find_playlist(game.playlist_id).await? else {
         return Err(ServiceError::NotFound(format!(
             "playlist `{}` not found",
@@ -163,9 +158,6 @@ pub async fn load_game(
             "playlist must contain at least one song".into(),
         ));
     }
-    if game.playlist_song_order.is_empty() {
-        panic!("playlist_song_order should not be empty")
-    };
 
     validate_persisted_game(&game, &playlist)?;
 
@@ -221,8 +213,6 @@ fn build_teams(
                 .buzzer_id
                 .unwrap_or_default()
                 .as_ref()
-                .map(|id| sanitize_buzzer_id(id))
-                .transpose()?
                 .map(|id| {
                     if !seen_ids.insert(id.clone()) {
                         Err(ServiceError::InvalidInput(format!(
@@ -230,7 +220,7 @@ fn build_teams(
                             id
                         )))
                     } else {
-                        Ok(id)
+                        Ok(id.clone())
                     }
                 })
                 .transpose()?;
@@ -363,23 +353,4 @@ fn validate_persisted_game(
     }
 
     Ok(())
-}
-
-fn is_valid_buzzer_id(value: &str) -> bool {
-    value.len() == BUZZER_ID_LENGTH && value.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'))
-}
-
-/// Normalise and validate a buzzer identifier (lowercase hex, no whitespace).
-pub fn sanitize_buzzer_id(raw: &str) -> Result<String, ServiceError> {
-    let mut buzzer_id = raw.to_lowercase();
-    buzzer_id.retain(|c| !c.is_whitespace());
-
-    if !is_valid_buzzer_id(&buzzer_id) {
-        return Err(ServiceError::InvalidInput(format!(
-            "invalid buzzer id `{}`: expected {} lowercase hex characters",
-            raw, BUZZER_ID_LENGTH
-        )));
-    }
-
-    Ok(buzzer_id)
 }

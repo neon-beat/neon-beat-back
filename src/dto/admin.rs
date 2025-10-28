@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use utoipa::ToSchema;
 use uuid::Uuid;
+use validator::{Validate, ValidationErrors};
 
 use crate::{
     dao::models::{GameListItemEntity, PlaylistEntity},
@@ -32,24 +33,47 @@ pub struct PlaylistListItem {
 }
 
 /// Payload describing how to spin up a game from an existing playlist definition.
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug, Deserialize, ToSchema, Validate)]
 pub struct CreateGameRequest {
     pub name: String,
+    #[validate(nested)]
     pub teams: Vec<TeamInput>,
     pub playlist_id: Uuid,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateGameQuery {
     #[serde(default)]
     pub shuffle: bool,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LoadGameQuery {
     #[serde(default)]
     pub shuffle: bool,
 }
+
+/// Rejects any query parameters by failing deserialization on unknown fields.
+///
+/// Used for routes that should not accept any query parameters. When a client
+/// provides any query parameter to a route using this type, Axum will return
+/// a `400 Bad Request` with a descriptive serde error message.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// pub async fn my_handler(
+///     Query(_no_query): Query<NoQuery>,
+/// ) -> Result<Json<Response>, ServiceError> {
+///     // This route rejects any query parameters
+///     Ok(Json(response))
+/// }
+/// ```
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct NoQuery {}
 
 /// Classifies the type of field discovered during gameplay.
 #[derive(Debug, Deserialize, ToSchema)]
@@ -114,10 +138,22 @@ pub struct ScoreUpdateResponse {
 #[serde(transparent)]
 pub struct CreateTeamRequest(pub TeamInput);
 
+impl Validate for CreateTeamRequest {
+    fn validate(&self) -> Result<(), ValidationErrors> {
+        self.0.validate()
+    }
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 /// Request payload to update an existing team in the active game.
 #[serde(transparent)]
 pub struct UpdateTeamRequest(pub TeamInput);
+
+impl Validate for UpdateTeamRequest {
+    fn validate(&self) -> Result<(), ValidationErrors> {
+        self.0.validate()
+    }
+}
 
 #[derive(Debug, Deserialize, ToSchema)]
 /// Request payload to start a buzzer pairing session.

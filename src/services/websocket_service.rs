@@ -64,31 +64,23 @@ pub async fn handle_socket(state: SharedState, socket: WebSocket) {
         }
     };
 
-    let inbound: BuzzerInboundMessage = match serde_json::from_str(&initial_message) {
+    let inbound = match BuzzerInboundMessage::from_json_str(&initial_message) {
         Ok(message) => message,
         Err(err) => {
-            warn!(error = %err, "invalid json from buzzer");
+            warn!(error = %err, "failed to parse or validate buzzer message");
             let _ = outbound_tx.send(Message::Close(None));
             finalize(writer_task, outbound_tx).await;
             return;
         }
     };
 
-    let Some(buzzer_id) = inbound.identification_id() else {
+    let BuzzerInboundMessage::Identification { id: buzzer_id } = inbound else {
         warn!("first message was not identification");
         let _ = outbound_tx.send(Message::Close(None));
         finalize(writer_task, outbound_tx).await;
         return;
     };
 
-    if !is_valid_buzzer_id(buzzer_id) {
-        warn!(id = buzzer_id, "invalid buzzer id");
-        let _ = outbound_tx.send(Message::Close(None));
-        finalize(writer_task, outbound_tx).await;
-        return;
-    }
-
-    let buzzer_id = buzzer_id.to_string();
     state.buzzers().insert(
         buzzer_id.clone(),
         BuzzerConnection {
@@ -111,27 +103,29 @@ pub async fn handle_socket(state: SharedState, socket: WebSocket) {
             Ok(Message::Text(text)) => {
                 info!(id = %buzzer_id, payload = %text, "received buzzer message");
 
-                match serde_json::from_str::<BuzzerInboundMessage>(&text) {
-                    Ok(BuzzerInboundMessage::Buzz { id }) => {
-                        let res = if id == buzzer_id {
-                            handle_buzz(&state, &id, &outbound_tx).await
-                        } else {
-                            Err(ServiceError::InvalidState(format!(
-                                "Buzz ignored: mismatched ID (expected {buzzer_id}, got {id})"
-                            )))
-                        };
-                        if let Err(err) = res {
-                            warn!(
-                                error = %err,
-                                "Error while handling buzz (form ID {id})",
-                            );
-                        };
-                    }
-                    Ok(BuzzerInboundMessage::Identification { .. }) => {
-                        warn!(id = %buzzer_id, "ignoring duplicate identification message");
-                    }
-                    Ok(BuzzerInboundMessage::Unknown) | Err(_) => {
-                        warn!(id = %buzzer_id, "unrecognised buzzer message");
+                match BuzzerInboundMessage::from_json_str(&text) {
+                    Ok(msg) => match msg {
+                        BuzzerInboundMessage::Buzz { id } => {
+                            let res = if id == buzzer_id {
+                                handle_buzz(&state, &id, &outbound_tx).await
+                            } else {
+                                Err(ServiceError::InvalidState(format!(
+                                    "Buzz ignored: mismatched ID (expected {buzzer_id}, got {id})"
+                                )))
+                            };
+                            if let Err(err) = res {
+                                warn!(
+                                    error = %err,
+                                    "Error while handling buzz (form ID {id})",
+                                );
+                            };
+                        }
+                        BuzzerInboundMessage::Identification { .. } => {
+                            warn!(id = %buzzer_id, "ignoring duplicate identification message");
+                        }
+                    },
+                    Err(err) => {
+                        warn!(id = %buzzer_id, error = %err, "failed to parse or validate buzzer message");
                     }
                 }
             }
@@ -341,14 +335,6 @@ async fn handle_prep_pairing_buzz(
     handle_pairing_progress(state, pairing_progress).await?;
 
     Ok(())
-}
-
-/// Buzzer identifiers must be 12 lowercase hexadecimal characters with no separators.
-fn is_valid_buzzer_id(value: &str) -> bool {
-    value.len() == 12
-        && value
-            .chars()
-            .all(|c| c.is_ascii_digit() || matches!(c, 'a'..='f'))
 }
 
 async fn handle_playing_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), ServiceError> {
