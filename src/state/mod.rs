@@ -171,9 +171,20 @@ impl PersistenceCoordinator {
         }
     }
 
-    /// Clear all team persistence metadata.
-    /// Should be called when switching to a new game to ensure clean state.
-    fn clear_team_metadata(&self) {
+    /// Clear all persistence state in preparation for a new game session.
+    ///
+    /// This ensures that throttling, pending updates, and flush scheduling from the
+    /// previous game don't interfere with the new game. This prevents issues like:
+    /// - New game's first persist being throttled by old game's timing
+    /// - Stale pending updates from previous game being flushed
+    /// - Flush tasks from old game still running
+    async fn clear_all(&self) {
+        // Clear game-level state
+        *self.game_last_persist.write().await = None;
+        *self.pending_game.write().await = None;
+        *self.game_flush_scheduled.write().await = false;
+
+        // Clear team-level state
         self.team_metadata.clear();
     }
 }
@@ -657,10 +668,20 @@ impl AppState {
         f(&mut guard)
     }
 
-    /// Clear all team persistence metadata.
-    /// Should be called when switching to a new game to ensure clean state.
-    pub fn clear_team_metadata(&self) {
-        self.persistence.clear_team_metadata();
+    /// Clear all game-scoped state in preparation for a new game session.
+    ///
+    /// This clears:
+    /// - Persistence coordination state (throttling, pending updates, flush scheduling)
+    /// - Buzzer pattern cache
+    ///
+    /// Should be called when creating or loading a new game to ensure that state
+    /// from the previous game doesn't interfere with the new game.
+    pub async fn clear_game_state(&self) {
+        // Clear all persistence state
+        self.persistence.clear_all().await;
+
+        // Clear buzzer pattern cache
+        self.buzzer_last_patterns.clear();
     }
 
     /// Flush any pending team update for the given team_id.

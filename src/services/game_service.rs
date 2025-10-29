@@ -95,8 +95,8 @@ pub async fn create_game(
         })
         .await;
 
-    // Clear any stale team persistence metadata from previous game
-    state.clear_team_metadata();
+    // Clear all game-scoped state from previous game
+    state.clear_game_state().await;
 
     state.persist_current_game().await?;
 
@@ -175,8 +175,8 @@ pub async fn load_game(
         })
         .await;
 
-    // Clear any stale team persistence metadata from previous game
-    state.clear_team_metadata();
+    // Clear all game-scoped state from previous game
+    state.clear_game_state().await;
 
     if shuffle_playlist {
         state.persist_current_game_without_teams().await?;
