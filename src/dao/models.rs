@@ -40,12 +40,10 @@ pub struct PointFieldEntity {
 }
 
 /// Representation of a team stored in persistence and shared across layers.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TeamEntity {
     /// Stable identifier for the team.
     pub id: Uuid,
-    /// Unique buzzer identifier (12 lowercase hexadecimal characters).
-    pub buzzer_id: Option<String>,
     /// Display name chosen for the team.
     pub name: String,
     /// Current score for the team.

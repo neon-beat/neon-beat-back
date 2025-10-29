@@ -731,7 +731,7 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Add axum validation
 - [x] Do not make a thread fail if a message could not be sent to a buzzer (retry it later)
 - [x] On a buzzer reconnexion, send back its pattern (and improve reconexion mechanisms)
-- [ ] Remove buzzer_id from TeamEntity
+- [x] Remove buzzer_id from TeamEntity
 - [ ] Be able to reveal during Pause phase
 - [ ] Add another Pause phase between Reveal and Playing (BetweenRevealAndPlaying)
 - [ ] Be able to switch to Pairing phase from PrepReady, PauseManual et BetweenRevealAndPlaying : once done, go back to the previous state

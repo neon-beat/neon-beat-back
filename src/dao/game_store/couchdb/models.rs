@@ -217,7 +217,6 @@ pub struct TeamBody {
     pub team_id: Uuid,
     pub name: String,
     pub score: i32,
-    pub buzzer_id: Option<String>,
     pub color: TeamColorEntity,
     pub updated_at: SystemTime,
 }
@@ -232,7 +231,6 @@ impl From<(Uuid, TeamEntity, Option<String>)> for CouchTeamDocument {
                 team_id: team.id,
                 name: team.name,
                 score: team.score,
-                buzzer_id: team.buzzer_id,
                 color: team.color,
                 updated_at: team.updated_at,
             },
@@ -246,7 +244,6 @@ impl From<CouchTeamDocument> for TeamEntity {
             id: doc.team.team_id,
             name: doc.team.name,
             score: doc.team.score,
-            buzzer_id: doc.team.buzzer_id,
             color: doc.team.color,
             updated_at: doc.team.updated_at,
         }
