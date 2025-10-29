@@ -729,11 +729,14 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [x] Shuffle on `POST /admin/games`, `POST /admin/games/with-playlist` and also (but only if game is not started or has a completed playlist) `POST /admin/games/{id}/load`
 - [x] Reject unknown/unexpected fields for query/path params with `#[serde(deny_unknown_fields)]`
 - [x] Add axum validation
-- [ ] Do not make a thread fail if a message could not be sent to a buzzer (retry it later)
-- [ ] On a buzzer reconnexion, send back its pattern (and improve reconexion mechanisms)
+- [x] Do not make a thread fail if a message could not be sent to a buzzer (retry it later)
+- [x] On a buzzer reconnexion, send back its pattern (and improve reconexion mechanisms)
 - [ ] Remove buzzer_id from TeamEntity
 - [ ] Be able to reveal during Pause phase
-- [ ] Add another Pause phase between Reveal and Playing
+- [ ] Add another Pause phase between Reveal and Playing (BetweenRevealAndPlaying)
+- [ ] Be able to switch to Pairing phase from PrepReady, PauseManual et BetweenRevealAndPlaying : once done, go back to the previous state
+- [ ] Add an Error phase that can be triggered from any phase (once done, go back to the previous state)
+- [ ] On buzzer pairing, send it the pending pattern for the old team's buzzer ID (if it had one)
 - [ ] If a buzzer enters inhibited mode, send the information to SSE streams (public & admin)
 - [ ] Better management for panics & expects
 - [ ] Less info logs (only connected/disconnected)
