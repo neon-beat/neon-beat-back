@@ -231,9 +231,7 @@ impl MongoGameStore {
         // Build map from team_id to TeamEntity
         let mut team_map: HashMap<Uuid, TeamEntity> = HashMap::new();
         for td in team_docs {
-            let (_tid, team_entity) = (td)
-                .try_into()
-                .map_err(|e| MongoDaoError::LoadGame { id, source: e })?;
+            let (_tid, team_entity) = td.into();
             team_map.insert(team_entity.id, team_entity);
         }
 

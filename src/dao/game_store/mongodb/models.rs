@@ -121,10 +121,8 @@ impl From<(Uuid, TeamEntity)> for MongoTeamDocument {
     }
 }
 
-impl TryFrom<MongoTeamDocument> for (Uuid, TeamEntity) {
-    type Error = mongodb::error::Error;
-
-    fn try_from(doc: MongoTeamDocument) -> Result<Self, Self::Error> {
+impl From<MongoTeamDocument> for (Uuid, TeamEntity) {
+    fn from(doc: MongoTeamDocument) -> Self {
         let team = TeamEntity {
             id: doc.team_id,
             name: doc.name,
@@ -132,6 +130,6 @@ impl TryFrom<MongoTeamDocument> for (Uuid, TeamEntity) {
             color: doc.color,
             updated_at: doc.updated_at.to_system_time(),
         };
-        Ok((doc.team_id, team))
+        (doc.team_id, team)
     }
 }
