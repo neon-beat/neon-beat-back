@@ -102,8 +102,6 @@ pub struct MongoTeamDocument {
     pub name: String,
     /// Team score.
     pub score: i32,
-    /// Optional buzzer identifier.
-    pub buzzer_id: Option<String>,
     /// Team color.
     pub color: TeamColorEntity,
     /// Last update timestamp stored as BSON DateTime.
@@ -117,25 +115,21 @@ impl From<(Uuid, TeamEntity)> for MongoTeamDocument {
             team_id: team.id,
             name: team.name,
             score: team.score,
-            buzzer_id: team.buzzer_id,
             color: team.color,
             updated_at: DateTime::from_system_time(team.updated_at),
         }
     }
 }
 
-impl TryFrom<MongoTeamDocument> for (Uuid, TeamEntity) {
-    type Error = mongodb::error::Error;
-
-    fn try_from(doc: MongoTeamDocument) -> Result<Self, Self::Error> {
+impl From<MongoTeamDocument> for (Uuid, TeamEntity) {
+    fn from(doc: MongoTeamDocument) -> Self {
         let team = TeamEntity {
             id: doc.team_id,
-            buzzer_id: doc.buzzer_id,
             name: doc.name,
             score: doc.score,
             color: doc.color,
             updated_at: doc.updated_at.to_system_time(),
         };
-        Ok((doc.team_id, team))
+        (doc.team_id, team)
     }
 }

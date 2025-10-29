@@ -74,7 +74,6 @@ use crate::{
         common::{GamePhaseSnapshot, SongSnapshot},
         game::TeamSummary,
         phase::VisibleGamePhase,
-        ws::BuzzerPattern,
     },
     error::ServiceError,
     state::{
@@ -172,9 +171,20 @@ impl PersistenceCoordinator {
         }
     }
 
-    /// Clear all team persistence metadata.
-    /// Should be called when switching to a new game to ensure clean state.
-    fn clear_team_metadata(&self) {
+    /// Clear all persistence state in preparation for a new game session.
+    ///
+    /// This ensures that throttling, pending updates, and flush scheduling from the
+    /// previous game don't interfere with the new game. This prevents issues like:
+    /// - New game's first persist being throttled by old game's timing
+    /// - Stale pending updates from previous game being flushed
+    /// - Flush tasks from old game still running
+    async fn clear_all(&self) {
+        // Clear game-level state
+        *self.game_last_persist.write().await = None;
+        *self.pending_game.write().await = None;
+        *self.game_flush_scheduled.write().await = false;
+
+        // Clear team-level state
         self.team_metadata.clear();
     }
 }
@@ -185,6 +195,10 @@ pub struct AppState {
     game_store: RwLock<Option<Arc<dyn GameStore>>>,
     sse: SseState,
     buzzers: DashMap<String, BuzzerConnection>,
+    /// Last known pattern for each buzzer. This is updated on every successful pattern send
+    /// and used to restore buzzer state when they reconnect.
+    /// Tracks the desired state for each buzzer regardless of connection status.
+    buzzer_last_patterns: DashMap<String, BuzzerPatternPreset>,
     game: RwLock<GameStateMachine>,
     current_game: RwLock<Option<GameSession>>,
     degraded_flag: RwLock<bool>,
@@ -205,6 +219,7 @@ impl AppState {
             game_store: RwLock::new(None),
             sse: SseState::new(16, 16),
             buzzers: DashMap::new(),
+            buzzer_last_patterns: DashMap::new(),
             game: RwLock::new(GameStateMachine::new()),
             current_game: RwLock::new(None),
             degraded_flag: RwLock::new(true),
@@ -532,14 +547,6 @@ impl AppState {
         Arc::clone(&self.config)
     }
 
-    /// Retrieve a configured buzzer pattern to broadcast to devices.
-    ///
-    /// The provided `preset` carries the team color when the pattern needs to adopt a
-    /// team-specific hue (e.g. standby/playing/answering effects).
-    pub fn buzzer_pattern(&self, preset: BuzzerPatternPreset) -> BuzzerPattern {
-        self.config.buzzer_pattern(preset)
-    }
-
     /// Current degraded flag.
     pub async fn is_degraded(&self) -> bool {
         *self.degraded_flag.read().await
@@ -568,6 +575,12 @@ impl AppState {
     /// Registry of active buzzer sockets keyed by their identifier.
     pub fn buzzers(&self) -> &DashMap<String, BuzzerConnection> {
         &self.buzzers
+    }
+
+    /// Registry of last known patterns for all buzzers.
+    /// This is updated on every successful pattern send and used to restore buzzer state on reconnection.
+    pub fn buzzer_last_patterns(&self) -> &DashMap<String, BuzzerPatternPreset> {
+        &self.buzzer_last_patterns
     }
 
     /// Snapshot the current pairing session if one is active.
@@ -655,10 +668,20 @@ impl AppState {
         f(&mut guard)
     }
 
-    /// Clear all team persistence metadata.
-    /// Should be called when switching to a new game to ensure clean state.
-    pub fn clear_team_metadata(&self) {
-        self.persistence.clear_team_metadata();
+    /// Clear all game-scoped state in preparation for a new game session.
+    ///
+    /// This clears:
+    /// - Persistence coordination state (throttling, pending updates, flush scheduling)
+    /// - Buzzer pattern cache
+    ///
+    /// Should be called when creating or loading a new game to ensure that state
+    /// from the previous game doesn't interfere with the new game.
+    pub async fn clear_game_state(&self) {
+        // Clear all persistence state
+        self.persistence.clear_all().await;
+
+        // Clear buzzer pattern cache
+        self.buzzer_last_patterns.clear();
     }
 
     /// Flush any pending team update for the given team_id.

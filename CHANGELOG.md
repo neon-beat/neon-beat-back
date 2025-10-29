@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.8.1] - Buzzer reliability & state management improvements
+
+### Added
+- **Buzzer reconnection**: Buzzers restore their last known pattern on reconnection instead of defaulting to WaitingForPairing
+
+### Changed
+- **Team persistence**: Removed `buzzer_id` from database storage (session-only, teams must be re-paired after game load)
+- **State clearing**: Added `clear_game_state()` method to clear all persistence state and buzzer patterns (fixes throttling bug)
+- **Error handling**: Buzzer communication failures now log warnings instead of blocking operations
+- **Type safety**: Simplified `TryFrom<MongoTeamDocument>` to `From`
+
 ## [v0.8.0] - Reject unknown query param & add fallback route
 
 ### Added

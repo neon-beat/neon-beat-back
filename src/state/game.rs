@@ -268,23 +268,11 @@ impl From<Playlist> for PlaylistEntity {
     }
 }
 
-impl From<TeamEntity> for Team {
-    fn from(value: TeamEntity) -> Self {
-        Self {
-            buzzer_id: value.buzzer_id,
-            name: value.name,
-            score: value.score,
-            color: value.color.into(),
-            updated_at: value.updated_at,
-        }
-    }
-}
-
 impl From<TeamEntity> for (Uuid, Team) {
     fn from(value: TeamEntity) -> Self {
         let id = value.id;
         let team = Team {
-            buzzer_id: value.buzzer_id,
+            buzzer_id: None,
             name: value.name,
             score: value.score,
             color: value.color.into(),
@@ -298,7 +286,6 @@ impl From<(Uuid, Team)> for TeamEntity {
     fn from((id, team): (Uuid, Team)) -> Self {
         Self {
             id,
-            buzzer_id: team.buzzer_id,
             name: team.name,
             score: team.score,
             color: team.color.into(),

@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
+use thiserror::Error;
 use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -26,6 +27,35 @@ use crate::{
 };
 
 const IDENT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Internal error type for buzz handling operations.
+///
+/// This type represents errors that occur during WebSocket buzz processing,
+/// distinct from `ServiceError` which is used for HTTP responses.
+#[derive(Debug, Error)]
+enum BuzzError {
+    /// Writer channel closed - connection should be terminated immediately.
+    #[error("connection closed")]
+    ConnectionClosed,
+    /// Buzzer ID in message doesn't match the connection's ID.
+    #[error("buzz ignored: mismatched ID (expected {expected}, got {got})")]
+    MismatchedId { expected: String, got: String },
+    /// Buzz received outside of a running game phase.
+    #[error("buzz events are ignored outside of running phases")]
+    NotRunningPhase,
+    /// Pairing session state was lost.
+    #[error("pairing workflow lost session state")]
+    PairingSessionLost,
+    /// Pairing target changed during update operation.
+    #[error("pairing target changed during update")]
+    PairingTargetChanged,
+    /// Buzzer ID is not associated with any team.
+    #[error("buzz ignored: unknown buzzer ID `{0}`")]
+    UnknownBuzzerId(String),
+    /// Error from persistence or state management operations.
+    #[error("service error: {0}")]
+    Service(#[from] ServiceError),
+}
 
 /// Handle the full lifecycle for an individual buzzer WebSocket connection.
 pub async fn handle_socket(state: SharedState, socket: WebSocket) {
@@ -91,12 +121,23 @@ pub async fn handle_socket(state: SharedState, socket: WebSocket) {
 
     info!(id = %buzzer_id, "buzzer connected");
 
-    send_message_to_websocket(
-        &outbound_tx,
-        &BuzzerOutboundMessage {
-            pattern: state.buzzer_pattern(BuzzerPatternPreset::WaitingForPairing),
-        },
-    );
+    // Determine which pattern to send on connection
+    let initial_pattern = state
+        .buzzer_last_patterns()
+        .get(&buzzer_id)
+        .map(|entry| {
+            let pattern = entry.value().clone();
+            info!(id = %buzzer_id, preset = ?pattern, "restoring last known pattern on reconnection");
+            pattern
+        })
+        .unwrap_or(BuzzerPatternPreset::WaitingForPairing);
+
+    // Send initial pattern - terminate on failure
+    if send_pattern_to_buzzer_tx(&state, &buzzer_id, &outbound_tx, initial_pattern).is_err() {
+        info!(id = %buzzer_id, "connection closed during initial pattern send, terminating");
+        finalize(writer_task, outbound_tx).await;
+        return;
+    }
 
     while let Some(message) = receiver.next().await {
         match message {
@@ -109,15 +150,21 @@ pub async fn handle_socket(state: SharedState, socket: WebSocket) {
                             let res = if id == buzzer_id {
                                 handle_buzz(&state, &id, &outbound_tx).await
                             } else {
-                                Err(ServiceError::InvalidState(format!(
-                                    "Buzz ignored: mismatched ID (expected {buzzer_id}, got {id})"
-                                )))
+                                Err(BuzzError::MismatchedId {
+                                    expected: buzzer_id.clone(),
+                                    got: id,
+                                })
                             };
                             if let Err(err) = res {
                                 warn!(
                                     error = %err,
-                                    "Error while handling buzz (form ID {id})",
+                                    "Error while handling buzz (from ID {buzzer_id})",
                                 );
+                                // If connection closed, terminate immediately
+                                if matches!(err, BuzzError::ConnectionClosed) {
+                                    info!(id = %buzzer_id, "Connection closed during buzz handling, terminating");
+                                    break;
+                                }
                             };
                         }
                         BuzzerInboundMessage::Identification { .. } => {
@@ -152,65 +199,111 @@ pub async fn handle_socket(state: SharedState, socket: WebSocket) {
     finalize(writer_task, outbound_tx).await;
 }
 
-/// Serialize a payload and push it onto the provided WebSocket sender, logging failures.
-pub fn send_message_to_websocket<T>(tx: &mpsc::UnboundedSender<Message>, value: &T)
+/// Serialize a payload and push it onto the provided WebSocket sender.
+///
+/// Returns `Ok(())` if the message was successfully queued for sending or if
+/// serialization failed (permanent error, no point retrying).
+/// Returns `Err(BuzzError::ConnectionClosed)` if the writer channel is closed
+/// (transient error, message should be retried when buzzer reconnects).
+fn send_message_to_websocket<T>(
+    tx: &mpsc::UnboundedSender<Message>,
+    value: &T,
+) -> Result<(), BuzzError>
 where
     T: ?Sized + serde::Serialize + std::fmt::Debug,
 {
-    match serde_json::to_string(value) {
-        Ok(payload) => {
-            if tx.send(Message::Text(payload.into())).is_err() {
-                warn!("websocket writer closed while sending message `{value:?}`");
-            }
+    let payload = match serde_json::to_string(value) {
+        Ok(p) => p,
+        Err(err) => {
+            // Serialization failure is a permanent error (bug in code)
+            // Log and return Ok - no point storing as pending
+            warn!(error = %err, "failed to serialize message `{value:?}` (permanent error, not retrying)");
+            return Ok(());
         }
-        Err(err) => warn!(error = %err, "failed to serialize the message `{value:?}`"),
-    }
+    };
+
+    // Writer closed is a transient error - return error for caller to handle
+    tx.send(Message::Text(payload.into()))
+        .map_err(|_| BuzzError::ConnectionClosed)
 }
 
 /// Send a pattern update to the buzzer associated with `team`.
+///
+/// If the team has no paired buzzer or the buzzer is not connected,
+/// logs a warning instead of returning an error.
 pub fn send_pattern_to_team_buzzer(
     state: &SharedState,
     team_id: &Uuid,
     team: &Team,
     preset: BuzzerPatternPreset,
-) -> Result<(), ServiceError> {
-    let buzzer_id = team.buzzer_id.as_ref().ok_or_else(|| {
-        ServiceError::InvalidState(format!("team `{team_id}` has no paired buzzer"))
-    })?;
-    send_pattern_to_buzzer(state, buzzer_id, preset)
+) {
+    let Some(buzzer_id) = team.buzzer_id.as_ref() else {
+        warn!(team_id = %team_id, "cannot send pattern: team has no paired buzzer");
+        return;
+    };
+    send_pattern_to_buzzer(state, buzzer_id, preset);
 }
 
-/// Send a pattern update to a buzzer.
-pub fn send_pattern_to_buzzer(
+/// Send a pattern update to a buzzer using its connection channel.
+///
+/// This function handles the actual sending and pattern tracking logic.
+/// On success, the pattern is stored as the last known state for this buzzer.
+/// On failure (writer closed), the pattern is still stored so it can be sent on reconnection,
+/// and the buzzer is removed from the connected list.
+///
+/// Returns `Ok(())` if the message was sent successfully, or `Err(BuzzError::ConnectionClosed)`
+/// if the writer channel is closed. The caller should handle connection cleanup if needed.
+fn send_pattern_to_buzzer_tx(
     state: &SharedState,
-    buzzer_id: &String,
+    buzzer_id: &str,
+    tx: &mpsc::UnboundedSender<Message>,
     preset: BuzzerPatternPreset,
-) -> Result<(), ServiceError> {
-    let tx = state
-        .buzzers()
-        .get(buzzer_id)
-        .ok_or_else(|| {
-            ServiceError::InvalidState(format!("buzzer `{buzzer_id}` is not connected"))
-        })?
-        .tx
-        .clone();
+) -> Result<(), BuzzError> {
+    let message = BuzzerOutboundMessage {
+        pattern: state.config().buzzer_pattern(preset.clone()),
+    };
 
-    send_message_to_websocket(
-        &tx,
-        &BuzzerOutboundMessage {
-            pattern: state.buzzer_pattern(preset),
-        },
-    );
+    let res = send_message_to_websocket(tx, &message);
 
-    Ok(())
+    if res.is_err() {
+        // Send failed (writer closed)
+        warn!(buzzer_id = %buzzer_id, preset = ?preset, "send failed (writer closed), removing buzzer connection");
+        state.buzzers().remove(buzzer_id);
+    }
+
+    // Store as last known pattern (if it was successful or not)
+    state
+        .buzzer_last_patterns()
+        .insert(buzzer_id.to_string(), preset);
+    res
 }
 
+/// Send a pattern update to a buzzer by ID.
+///
+/// Looks up the buzzer connection and delegates to `send_pattern_to_buzzer_tx`.
+/// If the buzzer is not connected, the pattern is stored as the last known state
+/// and will be sent when the buzzer reconnects.
+fn send_pattern_to_buzzer(state: &SharedState, buzzer_id: &String, preset: BuzzerPatternPreset) {
+    match state.buzzers().get(buzzer_id).map(|conn| conn.tx.clone()) {
+        Some(tx) => {
+            // Connected - send now (pattern stored automatically on success/failure)
+            let _ = send_pattern_to_buzzer_tx(state, buzzer_id, &tx, preset);
+        }
+        None => {
+            // Disconnected - store pattern for when buzzer reconnects
+            warn!(buzzer_id = %buzzer_id, preset = ?preset, "buzzer disconnected, storing pattern for reconnection");
+            state
+                .buzzer_last_patterns()
+                .insert(buzzer_id.clone(), preset);
+        }
+    }
+}
 /// Process a buzz coming from a buzzer connection, returning whether the team can answer.
-pub async fn handle_buzz(
+async fn handle_buzz(
     state: &SharedState,
     buzzer_id: &str,
     outbound_tx: &mpsc::UnboundedSender<Message>,
-) -> Result<(), ServiceError> {
+) -> Result<(), BuzzError> {
     match state.state_machine_phase().await {
         GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Ready)) => {
             handle_prep_ready_buzz(state, buzzer_id, outbound_tx).await
@@ -221,9 +314,7 @@ pub async fn handle_buzz(
         GamePhase::GameRunning(GameRunningPhase::Playing) => {
             handle_playing_buzz(state, buzzer_id).await
         }
-        _ => Err(ServiceError::InvalidState(
-            "buzz events are ignored outside of running phases".into(),
-        )),
+        _ => Err(BuzzError::NotRunningPhase),
     }
 }
 
@@ -231,7 +322,7 @@ async fn handle_prep_ready_buzz(
     state: &SharedState,
     buzzer_id: &str,
     outbound_tx: &mpsc::UnboundedSender<Message>,
-) -> Result<(), ServiceError> {
+) -> Result<(), BuzzError> {
     let config = state.config();
     let maybe_result = state
         .with_current_game_mut(|game| {
@@ -250,13 +341,6 @@ async fn handle_prep_ready_buzz(
                     None,
                     None,
                 );
-                send_message_to_websocket(
-                    outbound_tx,
-                    &BuzzerOutboundMessage {
-                        pattern: state
-                            .buzzer_pattern(BuzzerPatternPreset::Standby(new_team.color.clone())),
-                    },
-                );
                 Ok(Some((game.id, team_id, new_team)))
             } else {
                 Ok(None)
@@ -265,6 +349,14 @@ async fn handle_prep_ready_buzz(
         .await?;
 
     if let Some((game_id, team_id, team)) = maybe_result {
+        // If we can't notify the buzzer, abort - connection is dead
+        send_pattern_to_buzzer_tx(
+            state,
+            buzzer_id,
+            outbound_tx,
+            BuzzerPatternPreset::Standby(team.color.clone()),
+        )?;
+
         // Persist game metadata and the new team separately for efficiency
         state.persist_current_game_without_teams().await?;
         state.persist_team(game_id, team_id, team.clone()).await?;
@@ -279,11 +371,11 @@ async fn handle_prep_pairing_buzz(
     state: &SharedState,
     buzzer_id: &str,
     outbound_tx: &mpsc::UnboundedSender<Message>,
-) -> Result<(), ServiceError> {
+) -> Result<(), BuzzError> {
     let pairing_session = state
         .pairing_session()
         .await
-        .ok_or_else(|| ServiceError::InvalidState("pairing workflow lost session state".into()))?;
+        .ok_or(BuzzError::PairingSessionLost)?;
     let team_id = pairing_session.pairing_team_id;
 
     let (game_id, roster, team_color, modified_teams) = state
@@ -311,19 +403,18 @@ async fn handle_prep_pairing_buzz(
         })
         .await?;
 
-    send_message_to_websocket(
+    // If we can't notify the buzzer, abort - connection is dead
+    send_pattern_to_buzzer_tx(
+        state,
+        buzzer_id,
         outbound_tx,
-        &BuzzerOutboundMessage {
-            pattern: state.buzzer_pattern(BuzzerPatternPreset::Standby(team_color)),
-        },
-    );
+        BuzzerPatternPreset::Standby(team_color),
+    )?;
 
     let pairing_progress =
         apply_pairing_update(state, PairingSessionUpdate::Assigned { team_id, roster })
             .await?
-            .ok_or_else(|| {
-                ServiceError::InvalidState("pairing target changed during update".into())
-            })?;
+            .ok_or(BuzzError::PairingTargetChanged)?;
 
     // Persist game metadata and modified teams separately for efficiency
     state.persist_current_game_without_teams().await?;
@@ -337,7 +428,7 @@ async fn handle_prep_pairing_buzz(
     Ok(())
 }
 
-async fn handle_playing_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), ServiceError> {
+async fn handle_playing_buzz(state: &SharedState, buzzer_id: &str) -> Result<(), BuzzError> {
     let team_known = state
         .read_current_game(|maybe| {
             maybe.is_some_and(|game| {
@@ -349,9 +440,7 @@ async fn handle_playing_buzz(state: &SharedState, buzzer_id: &str) -> Result<(),
         .await;
 
     if !team_known {
-        return Err(ServiceError::InvalidState(format!(
-            "Buzz ignored: unknown buzzer ID `{buzzer_id}`"
-        )));
+        return Err(BuzzError::UnknownBuzzerId(buzzer_id.to_string()));
     }
 
     run_transition_with_broadcast(
@@ -362,24 +451,30 @@ async fn handle_playing_buzz(state: &SharedState, buzzer_id: &str) -> Result<(),
         move || async move { Ok(()) },
     )
     .await?;
-    state
+    let patterns_to_send = state
         .with_current_game(|game| {
-            game.teams
+            Ok(game
+                .teams
                 .iter()
-                .map(|(team_id, team)| {
-                    let team_buzzer_id = team.buzzer_id.as_ref().ok_or_else(|| {
-                        ServiceError::InvalidState(format!("team `{team_id}` has no paired buzzer"))
-                    })?;
-                    let preset = if team_buzzer_id == buzzer_id {
-                        BuzzerPatternPreset::Answering(team.color.clone())
+                .filter_map(|(team_id, team)| {
+                    if let Some(team_buzzer_id) = team.buzzer_id.as_ref() {
+                        let preset = if team_buzzer_id == buzzer_id {
+                            BuzzerPatternPreset::Answering(team.color.clone())
+                        } else {
+                            BuzzerPatternPreset::Waiting
+                        };
+                        Some((team_buzzer_id.clone(), preset))
                     } else {
-                        BuzzerPatternPreset::Waiting
-                    };
-                    send_pattern_to_buzzer(state, team_buzzer_id, preset)
+                        warn!(team_id = %team_id, "cannot send pattern: team has no paired buzzer");
+                        None
+                    }
                 })
-                .collect::<Result<Vec<_>, _>>()
+                .collect::<Vec<_>>())
         })
         .await?;
+    patterns_to_send
+        .into_iter()
+        .for_each(|(buzzer_id, preset)| send_pattern_to_buzzer(state, &buzzer_id, preset));
     Ok(())
 }
 
