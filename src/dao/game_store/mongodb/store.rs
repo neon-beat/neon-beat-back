@@ -20,6 +20,7 @@ use crate::dao::{
 const GAME_COLLECTION_NAME: &str = "games";
 const PLAYLIST_COLLECTION_NAME: &str = "playlists";
 
+/// MongoDB implementation of the GameStore trait.
 #[derive(Clone)]
 pub struct MongoGameStore {
     inner: Arc<MongoInner>,

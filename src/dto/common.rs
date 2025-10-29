@@ -11,8 +11,11 @@ use crate::{
 /// Snapshot of a point field for DTO use.
 #[derive(Debug, Serialize, ToSchema, Clone)]
 pub struct PointFieldSnapshot {
+    /// Unique key identifying this field.
     pub key: String,
+    /// The answer/value for this field.
     pub value: String,
+    /// Points awarded for finding this field.
     pub points: u8,
 }
 
@@ -29,15 +32,22 @@ impl From<PointField> for PointFieldSnapshot {
 /// Snapshot of a song including point fields metadata.
 #[derive(Debug, Serialize, ToSchema, Clone)]
 pub struct SongSnapshot {
+    /// Unique identifier for the song.
     pub id: u32,
+    /// Start time in milliseconds for playback.
     pub starts_at_ms: usize,
+    /// Duration in milliseconds for guessing.
     pub guess_duration_ms: usize,
+    /// URL of the song media file.
     pub url: String,
+    /// Required point fields for this song.
     pub point_fields: Vec<PointFieldSnapshot>,
+    /// Optional bonus fields for this song.
     pub bonus_fields: Vec<PointFieldSnapshot>,
 }
 
 impl SongSnapshot {
+    /// Create a song snapshot from a game session song.
     pub fn from_game_song(id: u32, song: &Song) -> Self {
         Self {
             id,
@@ -63,7 +73,9 @@ impl SongSnapshot {
 /// Shared snapshot describing the current gameplay phase and related context.
 #[derive(Debug, Serialize, ToSchema, Clone)]
 pub struct GamePhaseSnapshot {
+    /// Current phase of the game.
     pub phase: VisibleGamePhase,
+    /// ID of the active game (if any).
     pub game_id: Option<Uuid>,
     /// True when the backend operates in degraded mode (no connexion to database).
     pub degraded: bool,
@@ -87,8 +99,8 @@ pub struct GamePhaseSnapshot {
     pub found_bonus_fields: Option<Vec<String>>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, ToSchema, Validate)]
 /// HSV representation shared by DTOs (REST, SSE, WS).
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct TeamColorDto {
     /// Hue component (degrees).
     pub h: f32,

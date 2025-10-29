@@ -7,9 +7,12 @@ pub type StorageResult<T> = Result<T, StorageError>;
 /// Error raised by storage backends regardless of the underlying database.
 #[derive(Debug, Error)]
 pub enum StorageError {
+    /// Storage backend is unavailable or unreachable.
     #[error("storage unavailable: {message}")]
     Unavailable {
+        /// Human-readable description of the error.
         message: String,
+        /// The underlying error from the storage backend.
         #[source]
         source: Box<dyn Error + Send + Sync>,
     },

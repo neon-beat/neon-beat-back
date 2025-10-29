@@ -33,13 +33,18 @@ pub enum GameRunningPhase {
 /// Prep sub-mode data (ready or pairing with session data).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PrepStatus {
+    /// Ready to start the game.
     Ready,
+    /// Currently pairing buzzers with teams.
     Pairing(PairingSession),
 }
 
+/// Information about an active buzzer pairing session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PairingSession {
+    /// ID of the team currently pairing their buzzer.
     pub pairing_team_id: Uuid,
+    /// Snapshot of teams at the start of pairing.
     pub snapshot: IndexMap<Uuid, Team>,
 }
 
@@ -49,7 +54,10 @@ pub enum PauseKind {
     /// The game master manually paused gameplay.
     Manual,
     /// Gameplay paused because a team buzzed in (id identifies the buzzer).
-    Buzz { id: String },
+    Buzz {
+        /// Identifier of the buzzer that buzzed.
+        id: String,
+    },
 }
 
 /// Indicates why gameplay transitioned to the final scoreboard.
@@ -90,55 +98,91 @@ pub enum GameEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("invalid transition: {event:?} cannot be applied while in {from:?}")]
 pub struct InvalidTransition {
+    /// The phase the state machine was in when the invalid event was received.
     pub from: GamePhase,
+    /// The event that cannot be applied from this phase.
     pub event: GameEvent,
 }
 
+/// Errors that can occur when planning a state machine transition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlanError {
+    /// A transition is already pending and must be applied or aborted.
     AlreadyPending,
+    /// The requested transition is not valid from the current phase.
     InvalidTransition(InvalidTransition),
 }
 
+/// Errors that can occur when applying a planned state machine transition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApplyError {
+    /// No transition is currently pending.
     NoPending,
+    /// Plan ID does not match the pending plan.
     IdMismatch {
+        /// Expected plan ID.
         expected: PlanId,
+        /// Provided plan ID.
         got: PlanId,
     },
+    /// State machine phase changed since the plan was created.
     PhaseMismatch {
+        /// Phase when plan was created.
         expected: GamePhase,
+        /// Current phase.
         actual: GamePhase,
     },
+    /// State machine version changed since the plan was created.
     VersionMismatch {
+        /// Version when plan was created.
         expected: usize,
+        /// Current version.
         actual: usize,
     },
 }
 
+/// Errors that can occur when aborting a planned state machine transition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AbortError {
+    /// No transition is currently pending.
     NoPending,
-    IdMismatch { expected: PlanId, got: PlanId },
+    /// Plan ID does not match the pending plan.
+    IdMismatch {
+        /// Expected plan ID.
+        expected: PlanId,
+        /// Provided plan ID.
+        got: PlanId,
+    },
 }
 
+/// Unique identifier for a planned state transition.
 pub type PlanId = Uuid;
 
+/// A planned state machine transition that has been validated but not yet applied.
 #[derive(Debug, Clone)]
 pub struct Plan {
+    /// Unique identifier for this plan.
     pub id: PlanId,
+    /// Phase the state machine is currently in.
     pub from: GamePhase,
+    /// Phase the state machine will transition to.
     pub to: GamePhase,
+    /// Event that triggered this transition.
     pub event: GameEvent,
+    /// Version number after applying this transition.
     pub version_next: usize,
+    /// Timestamp when this plan was created.
     pub pending_since: Instant,
 }
 
+/// Snapshot of the current state machine state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Snapshot {
+    /// Current phase of the state machine.
     pub phase: GamePhase,
+    /// Version number of the state machine (increments on each transition).
     pub version: usize,
+    /// Pending transition phase, if a transition is planned but not yet applied.
     pub pending: Option<GamePhase>,
 }
 
@@ -171,6 +215,7 @@ impl GameStateMachine {
         self.phase.clone()
     }
 
+    /// Get an immutable reference to the current pairing session, if active.
     pub fn pairing_session(&self) -> Option<&PairingSession> {
         match &self.phase {
             GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Pairing(session))) => {
@@ -180,6 +225,7 @@ impl GameStateMachine {
         }
     }
 
+    /// Get a mutable reference to the current pairing session, if active.
     pub fn pairing_session_mut(&mut self) -> Option<&mut PairingSession> {
         match &mut self.phase {
             GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Pairing(session))) => {
@@ -189,6 +235,7 @@ impl GameStateMachine {
         }
     }
 
+    /// Create a snapshot of the current state machine state.
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             phase: self.phase.clone(),
@@ -197,6 +244,8 @@ impl GameStateMachine {
         }
     }
 
+    /// Plan a transition by validating that the event can be applied from the current phase.
+    /// Returns a Plan that can later be applied or aborted.
     pub fn plan(&mut self, event: GameEvent) -> Result<Plan, PlanError> {
         if self.pending.is_some() {
             return Err(PlanError::AlreadyPending);
@@ -220,6 +269,8 @@ impl GameStateMachine {
         Ok(plan)
     }
 
+    /// Apply a planned transition, moving the state machine to the next phase.
+    /// Returns the new phase after the transition.
     pub fn apply(&mut self, plan_id: PlanId) -> Result<GamePhase, ApplyError> {
         let plan = self.pending.take().ok_or(ApplyError::NoPending)?;
 
@@ -253,6 +304,7 @@ impl GameStateMachine {
         Ok(self.phase.clone())
     }
 
+    /// Abort a planned transition without applying it, returning the state machine to its previous state.
     pub fn abort(&mut self, plan_id: PlanId) -> Result<(), AbortError> {
         let plan = self.pending.as_ref().ok_or(AbortError::NoPending)?;
 

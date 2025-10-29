@@ -15,9 +15,12 @@ use crate::{
 /// Payload used to bootstrap a brand-new game instance.
 #[derive(Debug, Deserialize, ToSchema, Validate)]
 pub struct CreateGameWithPlaylistRequest {
+    /// Display name for the new game.
     pub name: String,
+    /// List of teams participating in the game.
     #[validate(nested)]
     pub teams: Vec<TeamInput>,
+    /// Playlist definition for the game.
     #[validate(nested)]
     pub playlist: PlaylistInput,
 }
@@ -25,6 +28,7 @@ pub struct CreateGameWithPlaylistRequest {
 /// Incoming team definition for the game bootstrap.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct TeamInput {
+    /// Display name for the team.
     pub name: String,
     /// If not specified, does not change it (or lets the back use the default value).
     /// If null is specified, removes the buzzer ID.
@@ -32,6 +36,7 @@ pub struct TeamInput {
     #[serde(default)]
     #[schema(value_type = Option<String>)]
     pub buzzer_id: Option<Option<String>>,
+    /// Initial score for the team (defaults to 0 if omitted).
     #[serde(default)]
     #[schema(value_type = i32)]
     pub score: Option<i32>,
@@ -71,7 +76,9 @@ impl Validate for TeamInput {
 /// Playlist metadata and songs supplied when bootstrapping a game.
 #[derive(Debug, Deserialize, ToSchema, Validate)]
 pub struct PlaylistInput {
+    /// Display name for the playlist.
     pub name: String,
+    /// List of songs in the playlist.
     #[validate(nested)]
     pub songs: Vec<SongInput>,
 }
@@ -79,11 +86,16 @@ pub struct PlaylistInput {
 /// Song details required to populate a playlist.
 #[derive(Debug, Deserialize, ToSchema, Validate)]
 pub struct SongInput {
+    /// Start time in milliseconds for the song playback.
     pub starts_at_ms: usize,
+    /// Duration in milliseconds for guessing.
     pub guess_duration_ms: usize,
+    /// URL of the song media file.
     #[validate(url)]
     pub url: String,
+    /// Point fields (required information) for this song.
     pub point_fields: Vec<PointFieldInput>,
+    /// Bonus fields (optional extra information) for this song.
     #[serde(default)]
     pub bonus_fields: Vec<PointFieldInput>,
 }
@@ -91,67 +103,107 @@ pub struct SongInput {
 /// Point field details required for a song.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct PointFieldInput {
+    /// Unique key identifying this field.
     pub key: String,
+    /// The answer/value for this field.
     pub value: String,
+    /// Points awarded for finding this field.
     pub points: u8,
 }
 
 /// Summary returned once a game has been created or loaded.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GameSummary {
+    /// Unique identifier for the game.
     pub id: String,
+    /// Display name of the game.
     pub name: String,
+    /// RFC3339 timestamp when the game was created.
     pub created_at: String,
+    /// RFC3339 timestamp when the game was last updated.
     pub updated_at: String,
+    /// List of teams in the game.
     pub teams: Vec<TeamSummary>,
+    /// Summary of the playlist used in the game.
     pub playlist: PlaylistSummary,
+    /// Index of the current song being played (if any).
     pub current_song_index: Option<usize>,
 }
 
-#[derive(Clone, Debug, Serialize, ToSchema)]
 /// Public projection of a team exposed to REST/SSE clients.
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub struct TeamSummary {
+    /// Unique identifier for the team.
     pub id: Uuid,
+    /// ID of the buzzer assigned to this team.
     pub buzzer_id: Option<String>,
+    /// Display name of the team.
     pub name: String,
+    /// Current score for the team.
     pub score: i32,
+    /// HSV color assigned to the team.
     pub color: TeamColorDto,
 }
 
+/// Brief team information without score or color.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct TeamBriefSummary {
+    /// Unique identifier for the team.
     pub id: Uuid,
+    /// Display name of the team.
     pub name: String,
 }
 
+/// Summary of a playlist including all its songs.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PlaylistSummary {
+    /// Unique identifier for the playlist.
     pub id: Uuid,
+    /// Display name of the playlist.
     pub name: String,
+    /// List of songs in the playlist.
     pub songs: Vec<SongSummary>,
 }
 
+/// Summary of a single song within a playlist.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SongSummary {
+    /// Unique identifier for the song.
     pub id: String,
+    /// Start time in milliseconds for playback.
     pub starts_at_ms: usize,
+    /// Duration in milliseconds for guessing.
     pub guess_duration_ms: usize,
+    /// URL of the song media file.
     pub url: String,
+    /// Required point fields for this song.
     pub point_fields: Vec<PointFieldSummary>,
+    /// Optional bonus fields for this song.
     pub bonus_fields: Vec<PointFieldSummary>,
 }
 
+/// Summary of a point or bonus field within a song.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PointFieldSummary {
+    /// Unique key identifying this field.
     pub key: String,
+    /// The answer/value for this field.
     pub value: String,
+    /// Points awarded for finding this field.
     pub points: u8,
 }
 
+/// Errors that can occur when validating playlist song ordering.
 #[derive(Debug, Error)]
 pub enum PlaylistOrderError {
+    /// Song IDs in the order don't match the playlist songs.
     #[error("playlist ids mismatch (missing in order: {missing:?}, extra in order: {extra:?})")]
-    MismatchedIds { missing: Vec<u32>, extra: Vec<u32> },
+    MismatchedIds {
+        /// Song IDs present in playlist but missing from order.
+        missing: Vec<u32>,
+        /// Song IDs present in order but not in playlist.
+        extra: Vec<u32>,
+    },
 }
 
 impl From<PointField> for PointFieldSummary {

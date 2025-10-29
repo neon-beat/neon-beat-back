@@ -8,20 +8,28 @@ use crate::{
     state::{AbortError, ApplyError, PlanError},
 };
 
+/// Errors that can occur in service layer operations.
 #[derive(Debug, Error)]
 pub enum ServiceError {
+    /// Storage backend is unavailable.
     #[error("storage unavailable")]
     Unavailable(#[source] StorageError),
+    /// Application is running in degraded mode without storage.
     #[error("storage unavailable (degraded mode)")]
     Degraded,
+    /// Unauthorized access attempt.
     #[error("unauthorized: {0}")]
     Unauthorized(String),
+    /// Invalid input provided by the client.
     #[error("invalid input: {0}")]
     InvalidInput(String),
+    /// Operation cannot be performed in the current state.
     #[error("invalid state: {0}")]
     InvalidState(String),
+    /// Requested resource was not found.
     #[error("not found: {0}")]
     NotFound(String),
+    /// Operation exceeded its timeout limit.
     #[error("operation timed out")]
     Timeout,
 }
@@ -38,18 +46,25 @@ impl From<ValidationErrors> for AppError {
     }
 }
 
+/// Application-level errors that are converted to HTTP responses.
 #[derive(Debug, Error)]
 pub enum AppError {
+    /// Bad request with invalid input.
     #[error("bad request: {0}")]
     BadRequest(String),
+    /// Unauthorized access attempt.
     #[error("unauthorized: {0}")]
     Unauthorized(String),
+    /// Requested resource not found.
     #[error("not found: {0}")]
     NotFound(String),
+    /// Conflict with current state.
     #[error("conflict: {0}")]
     Conflict(String),
+    /// Service unavailable or degraded.
     #[error("service unavailable: {0}")]
     ServiceUnavailable(String),
+    /// Internal server error.
     #[error("internal error: {0}")]
     Internal(String),
 }

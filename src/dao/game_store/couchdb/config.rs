@@ -3,9 +3,13 @@ use super::error::{CouchDaoError, CouchResult};
 /// Runtime configuration describing how to connect to CouchDB.
 #[derive(Debug, Clone)]
 pub struct CouchConfig {
+    /// Base URL of the CouchDB server (e.g., "http://localhost:5984").
     pub base_url: String,
+    /// Name of the database to use.
     pub database: String,
+    /// Optional username for basic authentication.
     pub username: Option<String>,
+    /// Optional password for basic authentication.
     pub password: Option<String>,
 }
 

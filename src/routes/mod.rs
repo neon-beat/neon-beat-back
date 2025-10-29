@@ -7,11 +7,17 @@ use serde_json::json;
 
 use crate::state::SharedState;
 
+/// Admin API routes for game management.
 pub mod admin;
+/// Documentation routes (OpenAPI/Swagger).
 pub mod docs;
+/// Health check routes.
 pub mod health;
+/// Public API routes for game information.
 pub mod public;
+/// Server-Sent Events routes for real-time updates.
 pub mod sse;
+/// WebSocket routes for real-time bidirectional communication.
 pub mod websocket;
 
 /// Compose all route trees, wiring in shared state and documentation routes.

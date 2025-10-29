@@ -4,14 +4,22 @@ use validator::ValidationError;
 
 use crate::dto::{common::TeamColorDto, validation::validate_buzzer_id};
 
-#[derive(Debug, Deserialize, ToSchema)]
 /// Messages accepted from buzzer WebSocket clients.
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(tag = "type")]
 pub enum BuzzerInboundMessage {
+    /// Buzzer identifies itself with an ID.
     #[serde(rename = "identification")]
-    Identification { id: String },
+    Identification {
+        /// Unique identifier for the buzzer device.
+        id: String,
+    },
+    /// Buzzer button was pressed.
     #[serde(rename = "buzz")]
-    Buzz { id: String },
+    Buzz {
+        /// Unique identifier for the buzzer device.
+        id: String,
+    },
 }
 
 impl BuzzerInboundMessage {
@@ -37,8 +45,10 @@ impl BuzzerInboundMessage {
 /// Errors that can occur when parsing and validating buzzer messages.
 #[derive(Debug, thiserror::Error)]
 pub enum BuzzerMessageError {
+    /// Invalid JSON format in the message.
     #[error("invalid JSON: {0}")]
     InvalidJson(#[from] serde_json::Error),
+    /// Message validation failed.
     #[error("validation failed: {0}")]
     ValidationFailed(#[from] ValidationError),
 }
