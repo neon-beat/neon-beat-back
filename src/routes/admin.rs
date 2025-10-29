@@ -371,6 +371,7 @@ pub async fn adjust_score(
     request_body = CreateTeamRequest,
     responses((status = 200, description = "Team created", body = TeamSummary))
 )]
+/// Create a new team in the active game during prep phase.
 pub async fn create_team(
     State(state): State<SharedState>,
     Query(_no_query): Query<NoQuery>,
@@ -389,6 +390,7 @@ pub async fn create_team(
     request_body = UpdateTeamRequest,
     responses((status = 200, description = "Team updated", body = TeamSummary))
 )]
+/// Update an existing team's information (name, buzzer, score, or color).
 pub async fn update_team(
     State(state): State<SharedState>,
     Path(id): Path<Uuid>,
@@ -407,6 +409,7 @@ pub async fn update_team(
     ("id" = Uuid, Path, description = "Identifier of the team to delete")),
     responses((status = 204, description = "Team deleted"))
 )]
+/// Delete a team from the active game during prep phase.
 pub async fn delete_team(
     State(state): State<SharedState>,
     Path(id): Path<Uuid>,
@@ -424,6 +427,7 @@ pub async fn delete_team(
     request_body = StartPairingRequest,
     responses((status = 202, description = "Pairing started"))
 )]
+/// Start the buzzer pairing workflow for teams during prep phase.
 pub async fn start_pairing(
     State(state): State<SharedState>,
     Query(_no_query): Query<NoQuery>,
@@ -440,6 +444,7 @@ pub async fn start_pairing(
     params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
     responses((status = 200, description = "Pairing aborted and roster restored", body = [TeamSummary]))
 )]
+/// Abort the buzzer pairing workflow and restore teams to their pre-pairing state.
 pub async fn abort_pairing(
     State(state): State<SharedState>,
     Query(_no_query): Query<NoQuery>,

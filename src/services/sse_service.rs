@@ -35,7 +35,9 @@ pub async fn subscribe_admin(
 /// bookkeeping when the connection is torn down.
 #[derive(Clone)]
 pub enum StreamKind {
+    /// Public SSE stream without special privileges.
     Public,
+    /// Admin SSE stream with state reference for cleanup.
     /// Carries a clone of the shared application state so teardown logic can
     /// reset the admin token after the spawned task completes. Cloning
     /// `SharedState` is cheap because it is just bumping the inner `Arc`.

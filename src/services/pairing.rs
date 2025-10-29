@@ -15,19 +15,27 @@ use crate::{
 /// Result of driving the pairing workflow forward.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PairingProgress {
+    /// Wait for the specified team to pair their buzzer.
     Wait(Uuid),
+    /// All teams have been paired, pairing is complete.
     Finish,
 }
 
 /// Mutation the state machine pairing session should apply after a roster change.
 #[derive(Debug)]
 pub enum PairingSessionUpdate {
+    /// A buzzer was assigned to a team.
     Assigned {
+        /// ID of the team that was assigned a buzzer.
         team_id: Uuid,
+        /// Updated roster after the assignment.
         roster: IndexMap<Uuid, Team>,
     },
+    /// A team was deleted during pairing.
     Deleted {
+        /// ID of the team that was deleted.
         team_id: Uuid,
+        /// Updated roster after the deletion.
         roster: IndexMap<Uuid, Team>,
     },
 }

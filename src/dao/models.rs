@@ -54,10 +54,14 @@ pub struct TeamEntity {
     pub updated_at: SystemTime,
 }
 
+/// HSV color representation for a team.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TeamColorEntity {
+    /// Hue component (0.0 - 360.0).
     pub h: f32,
+    /// Saturation component (0.0 - 1.0).
     pub s: f32,
+    /// Value/brightness component (0.0 - 1.0).
     pub v: f32,
 }
 

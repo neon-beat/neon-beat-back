@@ -7,12 +7,19 @@ use crate::state::state_machine::{GamePhase, GameRunningPhase, PrepStatus};
 #[derive(Debug, Serialize, ToSchema, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 pub enum VisibleGamePhase {
+    /// No active game.
     Idle,
+    /// Game in prep phase, ready to start.
     PrepReady,
+    /// Game in prep phase, pairing buzzers with teams.
     PrepPairing,
+    /// Game is actively playing.
     Playing,
+    /// Game is paused (manual or buzz).
     Pause,
+    /// Revealing the answer for the current song.
     Reveal,
+    /// Showing final scores.
     Scores,
 }
 

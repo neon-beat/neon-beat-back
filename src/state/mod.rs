@@ -57,9 +57,13 @@
 //! The `shutdown()` method ensures all pending updates are flushed before the
 //! application terminates, preventing data loss on restart.
 
+/// Game session data structures and conversions.
 pub mod game;
+/// Server-Sent Events hub and state management.
 mod sse;
+/// State machine for game phase transitions.
 pub mod state_machine;
+/// State machine transition implementations.
 pub mod transitions;
 
 use std::{
@@ -96,13 +100,17 @@ use self::{
     state_machine::{GameEvent, GameStateMachine},
 };
 
+/// Shared reference to application state, safe to clone across tasks.
 pub type SharedState = Arc<AppState>;
+/// Default timeout for state machine transitions.
 pub const DEFAULT_TRANSITION_TIMEOUT: Duration = Duration::from_secs(5);
 
-#[derive(Clone)]
 /// Handle used to push messages to a connected buzzer.
+#[derive(Clone)]
 pub struct BuzzerConnection {
+    /// Unique identifier for the buzzer device.
     pub id: String,
+    /// Channel sender for pushing messages to the buzzer WebSocket.
     pub tx: mpsc::UnboundedSender<Message>,
 }
 
@@ -1014,11 +1022,14 @@ impl AppState {
         sm.abort(plan_id)
     }
 
+    /// Get a snapshot of the current state machine state.
     pub async fn snapshot(&self) -> Snapshot {
         let sm = self.game.read().await;
         sm.snapshot()
     }
 
+    /// Run a state machine transition with custom work, applying the transition on success or aborting on failure.
+    /// The work closure is executed after planning but before applying the transition.
     pub async fn run_transition<F, Fut, T>(
         &self,
         event: GameEvent,

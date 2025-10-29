@@ -9,13 +9,7 @@ use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-mod config;
-mod dao;
-mod dto;
-mod error;
-mod routes;
-mod services;
-mod state;
+use neon_beat_back::{dao, routes, services, state};
 
 use dao::game_store::GameStore;
 #[cfg(feature = "couch-store")]

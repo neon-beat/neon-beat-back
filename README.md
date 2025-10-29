@@ -4,18 +4,46 @@ Neon Beat back is the Rust backend powering Neon Beat, a homemade blind test exp
 
 See [CHANGELOG](CHANGELOG.md) for detailed release notes.
 
+## Documentation
+
+📖 **[API Documentation](https://neon-beat.github.io/neon-beat-back/)** - Full OpenAPI/Swagger documentation deployed on GitHub Pages
+
 ## Highlights
 
 - **RESTful API**: Provides a well-defined RESTful API for programmatic access to its functionalities.
 - **Real-time communications**: Real-time communications via WebSockets for buzzers and Server-Sent Events for the public and admin UIs.
 - **Configurable persistence**: Build with MongoDB or CouchDB support and select the active store per deployment. Keeps playlists, teams, and game progress in sync. Playlists are stored in their own collection so games can reuse curated track lists without re-importing them each time.
-- **Swagger UI**: The full OpenAPI document is generated with utoipa and served through Swagger UI (`/docs`) for quick manual testing.
+- **Swagger UI**: The full OpenAPI document is generated with utoipa and served through Swagger UI (`/docs`) for quick manual testing, or view it on [GitHub Pages](https://neon-beat.github.io/neon-beat-back/).
 
 ## Utilities
 
+### `openapi-generator`
+
+Binary that generates the OpenAPI 3.1 specification from the Rust code (using `utoipa`).
+
+- Build: `cargo build --bin openapi-generator`
+- Generate spec: `./target/debug/openapi-generator > docs/openapi.json`
+
+The OpenAPI spec is automatically generated and deployed to GitHub Pages by the CI workflow (`.github/workflows/docs.yml`) when changes are pushed to `main`.
+
+**Local development with Swagger UI:**
+```bash
+# Generate the spec
+./target/debug/openapi-generator > docs/openapi.json
+
+# Download Swagger UI
+cd docs
+curl -L https://github.com/swagger-api/swagger-ui/archive/refs/tags/v5.10.0.tar.gz | tar xz --strip-components=2 swagger-ui-5.10.0/dist
+sed -i 's|https://petstore.swagger.io/v2/swagger.json|./openapi.json|g' swagger-initializer.js
+
+# Serve with any static file server
+python -m http.server 8000
+# Open http://localhost:8000
+```
+
 ### `tool-colors-gen`
 
-The repository contains a small helper binary that generates curated color assets (HTML previews and JSON exports) for teams.
+Binary that generates curated color assets (HTML previews and JSON exports) for teams.
 
 - Build/run (feature-gated):  
   `cargo run --bin tool-colors-gen --no-default-features --features tool-colors-gen`
@@ -749,14 +777,14 @@ BUILD_TARGET=aarch64-unknown-linux-gnu docker compose build
 - [ ] Once a team answered, it can be locked (until another team buzzes or the next song), depending on a game_start boolean parameter
 - [ ] Refactor TeamSummary (duplicate struct)
 - [ ] Add more logs
-- [ ] Serve the OpenAPI documentation as a Github Page
+- [x] Serve the OpenAPI documentation as a Github Page
 - [ ] Debounce device buzzes (~250 ms) during pairing to avoid double assigns
 - [ ] Reorganize routes if required
 - [ ] Better management for errors
 - [ ] Send encountered errors to admin SSE during WS handles
 - [ ] Create game/playlist IDs from store
 - [ ] Allow to create a game in degraded mode (save the session & playlist later)
-- [ ] When a buzzer has the right to answer, send info to others that they don't have the right to buzz yet. When the buzzer ended its turn, send info to others that they have the right to buzz now.
+- [x] When a buzzer has the right to answer, send info to others that they don't have the right to buzz yet. When the buzzer ended its turn, send info to others that they have the right to buzz now.
 - [ ] Update `game_store` value of `AppState ` and send False to `degraded` watcher each time a GameStore function returns a connection error ?
 - [ ] Remove useless features of dependencies if found
 - [ ] Implement tests

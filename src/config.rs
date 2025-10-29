@@ -322,6 +322,7 @@ impl PatternTemplate {
     }
 }
 
+/// Collection of buzzer pattern templates for different game states.
 #[derive(Debug, Clone)]
 pub struct PatternSet {
     /// Pattern used while waiting for pairing during prep; uses the provided team color if any.

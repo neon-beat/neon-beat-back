@@ -79,6 +79,7 @@ fn ensure_running_phase(phase: GamePhase) -> Result<GameRunningPhase, ServiceErr
 // Read-only projections
 // ---------------------------------------------------------------------------
 
+/// List all games from storage with their basic information.
 pub async fn list_games(state: &SharedState) -> Result<Vec<GameListItem>, ServiceError> {
     let store = state.require_game_store().await?;
     let game_entities = store.list_games().await?;
@@ -97,6 +98,7 @@ pub async fn list_games(state: &SharedState) -> Result<Vec<GameListItem>, Servic
     Ok(games_list)
 }
 
+/// Retrieve a specific game by ID from storage.
 pub async fn get_game_by_id(state: &SharedState, id: Uuid) -> Result<GameSummary, ServiceError> {
     let store = state.require_game_store().await?;
 
@@ -126,6 +128,7 @@ pub async fn list_playlists(state: &SharedState) -> Result<Vec<PlaylistListItem>
         .collect())
 }
 
+/// Delete a game from storage by ID. Cannot delete a currently running game.
 pub async fn delete_game(state: &SharedState, id: Uuid) -> Result<(), ServiceError> {
     let current_game_id = state.read_current_game(|game| game.map(|g| g.id)).await;
 
@@ -587,6 +590,7 @@ pub async fn validate_answer(
     }
 }
 
+/// Adjust a team's score by a delta during gameplay.
 pub async fn adjust_score(
     state: &SharedState,
     team_id: Uuid,
