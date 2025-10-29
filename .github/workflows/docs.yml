@@ -1,0 +1,69 @@
+name: Deploy API Documentation to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      
+      - name: Build OpenAPI generator
+        run: cargo build --release --bin openapi-generator
+      
+      - name: Create docs directory
+        run: mkdir -p docs
+      
+      - name: Generate OpenAPI spec
+        run: ./target/release/openapi-generator > docs/openapi.json
+      
+      - name: Download Swagger UI
+        run: |
+          cd docs
+          curl -L https://github.com/swagger-api/swagger-ui/archive/refs/tags/v5.10.0.tar.gz | tar xz --strip-components=2 swagger-ui-5.10.0/dist
+          # Update the spec URL to point to our openapi.json
+          sed -i 's|https://petstore.swagger.io/v2/swagger.json|./openapi.json|g' swagger-initializer.js
+      
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+      
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'docs'
+      
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
