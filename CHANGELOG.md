@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.8.2] - API documentation on GitHub Pages
+
+### Added
+- **GitHub Pages deployment**: OpenAPI/Swagger documentation automatically deployed on push to `main`
+- **`openapi-generator` binary**: Generates OpenAPI 3.1 spec from Rust code
+
+### Changed
+- **Library crate**: Added `src/lib.rs` to expose modules for binaries and tests
+
 ## [v0.8.1] - Buzzer reliability & state management improvements
 
 ### Added
