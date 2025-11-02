@@ -333,61 +333,22 @@ stateDiagram-v2
 
 ### Real-time Interfaces
 
-- **WebSocket connection for buzzers**:
-   - Buzzers connect to `GET /ws` and identify themselves by sending:
-     ```json
-     { "type": "identification", "id": "<mac_address>" }
-     ```
-     where `<mac_address>` is a 12-character lowercase hex string.
-   - Buzz events reuse the same id:
-     ```json
-     { "type": "buzz", "id": "<mac_address>" }
-     ```
-   - **Automatic pattern synchronization**: After identification or reconnection, server immediately sends the appropriate LED pattern for the current game state
-   - **Turn management**: Buzzers are informed when it's their team's turn to answer (via `answering` pattern) and when other teams are answering (via `waiting` pattern)
-   - **Graceful reconnection**: When buzzers reconnect, they automatically receive their current pattern state without disrupting the game
-- **SSE connection for frontends**: Admin and public frontends subscribe via `/sse/admin` and `/sse/public`. The admin stream issues a one-time token and enforces a single active admin connection.
+The system provides two real-time protocols for keeping all clients synchronized:
 
----
+**WebSocket (`/ws`) for buzzers:**
+- Physical devices connect and identify with 12-character hex MAC address
+- Send buzz events when pressed during pairing or gameplay
+- Receive LED pattern commands (blink, wave, off) with HSV color
+- Automatic pattern synchronization on reconnection
+- Patterns change based on game phase and buzzer state
 
-## Real-time Communication
+**Server-Sent Events (`/sse/*`) for frontends:**
+- **Public stream** (`/sse/public`): 14 event types, no authentication required
+- **Admin stream** (`/sse/admin`): 7 event types, token authentication, single connection enforced
+- Events cover game lifecycle, team changes, pairing workflow, and gameplay updates
+- Admin token issued on handshake for authenticating REST API calls
 
-The system provides two real-time channels to keep all clients (admin frontends, public displays, and physical buzzers) synchronized:
-
-### WebSocket for Buzzers (`/ws`)
-
-Physical buzzers connect via WebSocket and must identify themselves with a 12-character hex ID before buzzing:
-
-```json
-{"type": "identification", "id": "deadbeef0001"}
-{"type": "buzz", "id": "deadbeef0001"}
-```
-
-The backend responds with LED pattern commands (`blink`, `wave`, `off`) to provide immediate visual feedback based on game state.
-
-**Key capabilities:**
-- Automatic state preservation across reconnections
-- Bi-directional communication (identification/buzz up, LED patterns down)
-- Integration with pairing workflow and gameplay phases
-
-For detailed WebSocket protocol documentation, see [Advanced Topics](#advanced-topics).
-
-
-### Server-Sent Events for Frontends
-
-Two SSE streams keep UIs synchronized:
-
-- **`GET /sse/public`**: No authentication, receives public game updates
-- **`GET /sse/admin`**: Single-connection enforcement, issues admin token for REST API authentication
-
-**Key event types:**
-- `phase_changed` - Game state transitions (start, pause, resume, next song, end)
-- `team.*` - Team roster changes (created, updated, deleted)
-- `pairing.*` - Pairing workflow steps (waiting, assigned, restored)
-- `fields_found`, `answer_validation`, `score_adjustment` - Gameplay events
-- `system_status` - Database degraded mode notifications
-
-All events include timestamps and relevant entity IDs. The admin stream's initial `handshake` event contains a token that must be included in the `X-Admin-Token` header for all `/admin/**` REST requests. For complete event schemas and lifecycle documentation, see [Advanced Topics](#advanced-topics).
+📡 **[Complete protocol documentation →](PROTOCOLS.md)** - Full message formats, authentication flow, testing guides, and examples
 
 ---
 
@@ -426,21 +387,21 @@ The binary ships with both MongoDB and CouchDB support by default. Use the `NEON
 - When **both** backends are compiled: Set `NEON_STORE=mongo` or `NEON_STORE=couch`
 - When **single** backend is compiled: `NEON_STORE` is optional but must match if supplied
 
-### Team Colors (HSV)
+### Team Colors
 
-Teams are automatically assigned colors from a configurable HSV spectrum:
+Teams are automatically assigned colors from a configurable HSV spectrum defined in `config/app.json`:
 - **Default**: 20 hues evenly distributed across the spectrum
 - **Fallback**: White when all colors are taken
-- **Customization**: Modify HSV values in application config
 
-### Buzzer LED Patterns
+### Buzzer Patterns
 
-Buzzer firmware receives pattern commands with these parameters:
-- **Pattern types**: `blink`, `wave`, `off`
-- **Timing**: `duration_ms` (0 = infinite), `period_ms`
-- **Visual**: `dc` (duty cycle 0.0-1.0), `color` (HSV object)
+Buzzer LED patterns are configurable in `config/app.json`:
+- **Pattern types**: `blink` (on/off toggle), `wave` (breathing effect), `off`
+- **Timing parameters**: `duration_ms` (0 = infinite), `period_ms` (cycle length)
+- **Visual parameters**: `dc` (duty cycle 0.0-1.0), HSV color object
+- Default patterns defined for each buzzer phase (waiting for pairing, standby, playing, answering, waiting)
 
-See [Advanced Topics](#advanced-topics) for complete pattern specifications.
+See [PROTOCOLS.md](PROTOCOLS.md) for complete specifications and message formats.
 
 ---
 
@@ -594,96 +555,6 @@ The buzzer pairing workflow is integrated into the finite state machine to keep 
    - Emits `pairing.restored` with full roster before returning to `prep_ready`
    - Returns restored roster so UIs can resynchronize without waiting for SSE
 
-### WebSocket Protocol Details
-
-**Inbound messages (buzzer → server):**
-
-```json
-// Identification (required first, 10-second timeout)
-{"type": "identification", "id": "<12-char-lowercase-hex>"}
-
-// Buzz attempt (id must match identification)
-{"type": "buzz", "id": "<same-id>"}
-```
-
-**Outbound messages (server → buzzer):**
-
-```json
-// LED pattern command
-{
-  "pattern": {
-    "type": "blink" | "wave" | "off",
-    "details": {
-      "duration_ms": 1000,    // 0 = infinite
-      "period_ms": 200,       // cycle period
-      "dc": 0.5,              // duty cycle 0.0-1.0
-      "color": {"h": 125.0, "s": 1.0, "v": 1.0}  // HSV
-    }
-  }
-}
-```
-
-**Connection lifecycle:**
-- Device sends identification within 10 seconds or is disconnected
-- Server responds immediately with current LED pattern
-- Pattern updates sent during pairing and gameplay state changes
-- Reconnections automatically receive current pattern state
-
-**Device behavior:**
-- Apply pattern immediately and maintain for `duration_ms`
-- Reconnect with exponential backoff on disconnection
-- Ignore invalid JSON frames
-
-### SSE Event Schemas
-
-**Connection lifecycle:**
-
-Every connection starts with a `handshake` event:
-```json
-event: handshake
-data: {"stream":"public","message":"public stream connected","degraded":false}
-```
-
-Admin streams include a `token` field for REST authentication. System status events notify about degraded mode:
-```json
-event: system_status
-data: {"degraded":true}
-```
-
-**All event types:**
-
-| Event | Payload | Stream | Description |
-|-------|---------|--------|-------------|
-| **Connection & System** ||||
-| `handshake` | `HandshakeEvent` | public + admin | Initial connection event with stream info and degraded status. Admin streams include `token` field. |
-| `system_status` | `SystemStatusEvent` | public + admin | Emitted when database availability changes. Includes `degraded` boolean. |
-| **Game Lifecycle** ||||
-| `game.session` | `GameSummary` | public | Full game snapshot including teams, playlist ordering, timestamps, and current song index. Emitted when creating or loading a game. |
-| `phase_changed` | `PhaseChangedEvent` | public + admin | FSM state transition event. Includes optional song snapshot (when entering Playing), scoreboard (when entering ShowScores), and paused buzzer ID (when entering Paused with a buzz). Emitted for all state changes including game start, pause, resume, reveal, next song, and game end. |
-| **Team Management** ||||
-| `team.created` | `TeamCreatedEvent` | public + admin | Newly created team during prep phase. Payload wraps a `TeamSummary` with team ID, name, buzzer assignment, and score. |
-| `team.updated` | `TeamUpdatedEvent` | public | Existing team metadata changed (name, buzzer, or score) via update endpoint. Contains updated `TeamSummary`. |
-| `team.deleted` | `TeamDeletedEvent` | public | Team removed during prep phase. Payload contains the team UUID. Auto-advances pairing workflow if deleted team was currently pairing. |
-| **Gameplay Events** ||||
-| `fields_found` | `FieldsFoundEvent` | public | Updated list of discovered point/bonus fields for the current song when admin marks fields as found. |
-| `answer_validation` | `AnswerValidationEvent` | public | Validation result for a team's answer: `"correct"`, `"incomplete"`, or `"wrong"`. Sent when admin validates/invalidates. |
-| `score_adjustment` | `TeamSummary` | public | Broadcast after manual score changes via admin score adjustment endpoint. Contains full team summary with updated score. |
-| **Pairing & Testing** ||||
-| `pairing.waiting` | `PairingWaitingEvent` | public + admin | Announces which team should pair a buzzer next during the pairing workflow. Contains team ID and current pairing order. |
-| `pairing.assigned` | `PairingAssignedEvent` | public + admin | Confirms a buzzer assignment during pairing. Includes team ID, buzzer ID, and updated roster with all team assignments. |
-| `pairing.restored` | `PairingRestoredEvent` | public | Complete roster snapshot broadcast after aborting pairing to restore pre-pairing state. Contains full list of teams. |
-| `test.buzz` | `TestBuzzEvent` | public + admin | Emitted when a buzzer buzzes during prep-ready mode (non-pairing). Includes buzzer ID for testing hardware without affecting game state. |
-
-**Admin authentication:**
-- Initial `handshake` includes admin token
-- All `/admin/**` routes require `X-Admin-Token` header
-- Token invalidated when SSE connection is lost
-- Middleware validates tokens, returns `401` for invalid/stale tokens
-
-**Keep-alive:** Automatic comments sent every 15 seconds
-
-For complete event payload definitions, see `src/dto/sse.rs`.
-
 ---
 
 ## Utilities
@@ -695,7 +566,7 @@ The project includes a tool to generate the OpenAPI 3.1 specification from the R
 **Local development with Swagger UI:**
 ```bash
 # Generate the spec
-cargo run --bin openapi-generator --no-default-features > docs/openapi.json
+mkdir docs && cargo run --bin openapi-generator --no-default-features > docs/openapi.json
 
 # Download Swagger UI
 cd docs

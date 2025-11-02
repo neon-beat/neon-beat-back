@@ -7,6 +7,7 @@ This document outlines planned features, improvements, and known issues for Neon
 - [ ] Better management for panics & expects
 - [ ] Less info logs (only connected/disconnected)
 - [ ] Add more debug logs
+- [ ] Add the number of played songs and the teams scores to GameListItem
 - [ ] Refactor TeamSummary (duplicate struct)
 - [ ] Improve error codes
    - [ ] If there is no game: do not send 404 for GET Teams
