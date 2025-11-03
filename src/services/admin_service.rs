@@ -115,7 +115,7 @@ pub async fn get_game_by_id(state: &SharedState, id: Uuid) -> Result<GameSummary
 
     let game_session: GameSession = (game, playlist).into();
 
-    Ok(game_session.into())
+    Ok(game_session.try_into()?)
 }
 
 /// Return the playlists that can seed new games.
@@ -257,9 +257,9 @@ pub async fn start_game(state: &SharedState) -> Result<StartGameResponse, Servic
             .await?;
     }
 
-    let song_summary = load_next_song(state, true)
-        .await?
-        .expect("Error during game start: no song found in playlist after transitionning the state (should not happen)");
+    let song_summary = load_next_song(state, true).await?.ok_or_else(|| {
+        ServiceError::InvalidState("no song found in playlist after starting the game".into())
+    })?;
     Ok(StartGameResponse { song: song_summary })
 }
 

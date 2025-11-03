@@ -4,10 +4,10 @@ This document outlines planned features, improvements, and known issues for Neon
 
 ## Core Features
 
-- [ ] Better management for panics & expects
+- [x] Better management for panics & expects
 - [ ] Less info logs (only connected/disconnected)
 - [ ] Add more debug logs
-- [ ] Add the number of played songs and the teams scores to GameListItem
+- [ ] Add the number of played songs and the teams scores to GameListItem (https://github.com/neon-beat/neon-beat-admin-front/issues/13)
 - [ ] Refactor TeamSummary (duplicate struct)
 - [ ] Improve error codes
    - [ ] If there is no game: do not send 404 for GET Teams

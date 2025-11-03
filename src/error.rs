@@ -5,6 +5,7 @@ use validator::ValidationErrors;
 
 use crate::{
     dao::storage::StorageError,
+    dto::game::PlaylistOrderError,
     state::{AbortError, ApplyError, PlanError},
 };
 
@@ -37,6 +38,12 @@ pub enum ServiceError {
 impl From<StorageError> for ServiceError {
     fn from(err: StorageError) -> Self {
         ServiceError::Unavailable(err)
+    }
+}
+
+impl From<PlaylistOrderError> for ServiceError {
+    fn from(err: PlaylistOrderError) -> Self {
+        ServiceError::InvalidState(format!("playlist order error: {}", err))
     }
 }
 

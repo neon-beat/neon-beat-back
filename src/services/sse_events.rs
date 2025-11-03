@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::{
     dto::{
         admin::AnswerValidation,
-        game::{GameSummary, TeamSummary},
+        game::{GameSummary, PlaylistOrderError, TeamSummary},
         sse::{
             AnswerValidationEvent, FieldsFoundEvent, PairingAssignedEvent, PairingRestoredEvent,
             PairingWaitingEvent, PhaseChangedEvent, ServerEvent, TeamCreatedEvent,
@@ -80,9 +80,13 @@ pub fn broadcast_team_updated(state: &SharedState, team: TeamSummary) {
 }
 
 /// Broadcast a snapshot of the entire game session to public subscribers.
-pub fn broadcast_game_session(state: &SharedState, session: &GameSession) {
-    let summary: GameSummary = session.clone().into();
+pub fn broadcast_game_session(
+    state: &SharedState,
+    session: &GameSession,
+) -> Result<(), PlaylistOrderError> {
+    let summary: GameSummary = session.clone().try_into()?;
     send_public_event(state, EVENT_GAME_SESSION, &summary);
+    Ok(())
 }
 
 /// Broadcast that the pairing workflow is waiting for the specified team.
