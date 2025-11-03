@@ -241,27 +241,26 @@ impl From<(u32, Song)> for SongSummary {
     }
 }
 
-impl From<(Playlist, Vec<u32>)> for PlaylistSummary {
-    fn from((playlist, order): (Playlist, Vec<u32>)) -> Self {
-        let songs = ordered_song_summaries(playlist.songs, order).unwrap_or_else(|e| {
-            panic!(
-                "Error when generating PlaylistSummary (should not happen because should be checked before) : {}",
-                e
-            )
-        });
-        Self {
+impl TryFrom<(Playlist, Vec<u32>)> for PlaylistSummary {
+    type Error = PlaylistOrderError;
+
+    fn try_from((playlist, order): (Playlist, Vec<u32>)) -> Result<Self, Self::Error> {
+        let songs = ordered_song_summaries(playlist.songs, order)?;
+        Ok(Self {
             id: playlist.id,
             name: playlist.name,
             songs,
-        }
+        })
     }
 }
 
-impl From<GameSession> for GameSummary {
-    fn from(session: GameSession) -> Self {
-        let playlist_summary = (session.playlist, session.playlist_song_order).into();
+impl TryFrom<GameSession> for GameSummary {
+    type Error = PlaylistOrderError;
 
-        Self {
+    fn try_from(session: GameSession) -> Result<Self, Self::Error> {
+        let playlist_summary = (session.playlist, session.playlist_song_order).try_into()?;
+
+        Ok(Self {
             id: session.id.to_string(),
             name: session.name,
             created_at: format_system_time(session.created_at),
@@ -269,7 +268,7 @@ impl From<GameSession> for GameSummary {
             teams: session.teams.into_iter().map(Into::into).collect(),
             playlist: playlist_summary,
             current_song_index: session.current_song_index,
-        }
+        })
     }
 }
 

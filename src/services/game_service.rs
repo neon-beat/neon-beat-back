@@ -36,7 +36,7 @@ pub async fn create_playlist(
     // Preserve deterministic ordering based on the assigned song identifiers.
     let song_count = playlist.songs.len() as u32;
     let order: Vec<u32> = (0..song_count).collect();
-    let summary: PlaylistSummary = (playlist.clone(), order).into();
+    let summary: PlaylistSummary = (playlist.clone(), order).try_into()?;
     tracing::warn!("SUMMARY: {:?}", playlist);
 
     let entity: PlaylistEntity = playlist.clone().into();
@@ -86,8 +86,10 @@ pub async fn create_game(
 
     let game = GameSession::new(name, teams, playlist, shuffle_playlist);
     if game.playlist_song_order.is_empty() {
-        panic!("playlist_song_order should not be empty")
-    };
+        return Err(ServiceError::InvalidState(
+            "playlist song order is empty after game creation".into(),
+        ));
+    }
 
     state
         .with_current_game_slot_mut(|slot| {
@@ -100,9 +102,9 @@ pub async fn create_game(
 
     state.persist_current_game().await?;
 
-    sse_events::broadcast_game_session(state, &game);
+    sse_events::broadcast_game_session(state, &game)?;
 
-    Ok(game.into())
+    Ok(game.try_into()?)
 }
 
 /// Load an existing game from the database into the shared state.
@@ -120,8 +122,10 @@ pub async fn load_game(
     };
 
     if game.playlist_song_order.is_empty() {
-        panic!("playlist_song_order should not be empty")
-    };
+        return Err(ServiceError::InvalidState(format!(
+            "game `{id}` has an empty playlist song order"
+        )));
+    }
 
     let current_song_index = game.current_song_index;
     let current_song_found = game.current_song_found;
@@ -182,9 +186,9 @@ pub async fn load_game(
         state.persist_current_game_without_teams().await?;
     }
 
-    sse_events::broadcast_game_session(state, &game_session);
+    sse_events::broadcast_game_session(state, &game_session)?;
 
-    Ok(game_session.into())
+    Ok(game_session.try_into()?)
 }
 
 async fn ensure_idle(state: &SharedState) -> Result<(), ServiceError> {

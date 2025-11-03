@@ -13,7 +13,14 @@ use crate::{
 #[utoipa::path(
     get,
     path = "/sse/public",
-    responses((status = 200, description = "Public SSE stream", content_type = "text/event-stream", body = String))
+    responses(
+        (status = 200, 
+         description = "Public SSE stream with real-time game events",
+         content_type = "text/event-stream",
+         body = String
+        )
+    ),
+    tag = "sse"
 )]
 /// Stream realtime public events to connected frontends.
 pub async fn public_stream(
@@ -29,7 +36,15 @@ pub async fn public_stream(
 #[utoipa::path(
     get,
     path = "/sse/admin",
-    responses((status = 200, description = "Admin SSE stream", content_type = "text/event-stream", body = String))
+    responses(
+        (status = 200,
+         description = "Admin SSE stream with authentication token",
+         content_type = "text/event-stream",
+         body = String
+        ),
+        (status = 503, description = "Admin stream already in use (single connection enforced)")
+    ),
+    tag = "sse"
 )]
 /// Stream admin-only events, establishing or validating the admin token.
 pub async fn admin_stream(

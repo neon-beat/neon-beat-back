@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.8.3] - Replace panics and expects by errors
+
+### Changed
+- Replace panics and expects by errors
+- Rewrite the README file
+
 ## [v0.8.2] - API documentation on GitHub Pages
 
 ### Added
