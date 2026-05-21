@@ -2,41 +2,106 @@ use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 use uuid::Uuid;
 
-/// Playlist definition containing a list of songs.
+/// Questions sequence definition containing a list of questions.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PlaylistEntity {
-    /// Stable identifier for the playlist.
+pub struct QuestionsSequenceEntity {
+    /// Stable identifier for the questions sequence.
     pub id: Uuid,
-    /// Human readable playlist name.
+    /// Human readable sequence name.
     pub name: String,
-    /// Set of songs that make up the game (key is the ID of the song).
-    pub songs: Vec<SongEntity>,
+    /// Questions that make up the game.
+    pub questions: Vec<QuestionEntity>,
 }
 
-/// Song entry inside a playlist.
+/// Question entry inside a questions sequence.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SongEntity {
-    /// Timestamp (milliseconds) where the song preview should start.
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum QuestionEntity {
+    /// Music blindtest question.
+    BlindTest(BlindTestQuestionEntity),
+    /// Multiple-choice text question.
+    MultipleChoice(MultipleChoiceQuestionEntity),
+    /// Open text question.
+    Open(OpenQuestionEntity),
+}
+
+/// Blindtest question entry inside a questions sequence.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BlindTestQuestionEntity {
+    /// Timestamp (milliseconds) where the media preview should start.
     pub starts_at_ms: usize,
-    /// Allowed time (milliseconds) for teams to identify the song.
+    /// Allowed time (milliseconds) for teams to answer.
     pub guess_duration_ms: usize,
     /// URL pointing to the media resource.
     pub url: String,
-    /// Fields required to award the base points (e.g., song title, artist).
-    pub point_fields: Vec<PointFieldEntity>,
-    /// Optional extra fields that can yield bonus points.
-    pub bonus_fields: Vec<PointFieldEntity>,
+    /// Answers in import order. Runtime/API layers assign zero-based answer identifiers.
+    pub answers: Vec<BlindTestAnswerEntity>,
 }
 
-/// Data for a point field associated to a song of a playlist.
+/// Multiple-choice question entry inside a questions sequence.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PointFieldEntity {
-    /// The name of the field to found (e.g. "Artist").
+pub struct MultipleChoiceQuestionEntity {
+    /// Allowed time (milliseconds) for teams to answer.
+    pub guess_duration_ms: usize,
+    /// Text prompt displayed to participants.
+    pub prompt: String,
+    /// Optional URL pointing to a supporting resource.
+    pub url: Option<String>,
+    /// Possible answers in import order. Runtime/API layers assign zero-based answer identifiers.
+    pub answers: Vec<MultipleChoiceAnswerEntity>,
+    /// Hints in import order. Runtime/API layers assign zero-based hint identifiers.
+    pub hints: Vec<HintEntity>,
+}
+
+/// Open question entry inside a questions sequence.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OpenQuestionEntity {
+    /// Allowed time (milliseconds) for teams to answer.
+    pub guess_duration_ms: usize,
+    /// Text prompt displayed to participants.
+    pub prompt: String,
+    /// Optional URL pointing to a supporting resource.
+    pub url: Option<String>,
+    /// Accepted answers in import order. Runtime/API layers assign zero-based answer identifiers.
+    pub answers: Vec<OpenAnswerEntity>,
+    /// Hints in import order. Runtime/API layers assign zero-based hint identifiers.
+    pub hints: Vec<HintEntity>,
+}
+
+/// Data for an answer associated to a blindtest question.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BlindTestAnswerEntity {
+    /// The name of the answer field (e.g. "Artist").
     pub key: String,
-    /// The value to found for this field (e.g. the actual artist name).
+    /// The answer value for this field (e.g. the actual artist name).
     pub value: String,
-    /// The number of points given if this field is found.
+    /// Points awarded for finding this answer.
     pub points: u8,
+    /// Whether this answer is a bonus answer.
+    pub is_bonus: bool,
+}
+
+/// Data for an answer associated to a multiple-choice question.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MultipleChoiceAnswerEntity {
+    /// Answer text.
+    pub text: String,
+    /// Whether this answer is correct.
+    pub is_correct: bool,
+}
+
+/// Data for an answer associated to an open question.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OpenAnswerEntity {
+    /// Accepted answer text.
+    pub text: String,
+}
+
+/// Hint text associated to a question.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HintEntity {
+    /// Hint text.
+    pub text: String,
 }
 
 /// Representation of a team stored in persistence and shared across layers.
@@ -97,14 +162,14 @@ pub struct GameEntity {
     pub updated_at: SystemTime,
     /// Participating teams and their current scores.
     pub teams: Vec<TeamEntity>,
-    /// ID of the playlist used in this game session.
-    pub playlist_id: Uuid,
-    /// Oredered list of songs IDs from the playlist, defining the playlist order.
-    pub playlist_song_order: Vec<u32>,
-    /// Index of the current song to be found.
-    pub current_song_index: Option<usize>,
-    /// Whether the current song has already been revealed.
-    pub current_song_found: bool,
+    /// ID of the questions sequence used in this game session.
+    pub questions_sequence_id: Uuid,
+    /// Ordered list of question IDs from the sequence, defining the game order.
+    pub question_order: Vec<u32>,
+    /// Index of the current question to be played.
+    pub current_question_index: Option<usize>,
+    /// Whether the current question has already been revealed.
+    pub current_question_revealed: bool,
 }
 
 /// Aggregate game list item entity (subset of GameEntity) persisted by the storage layer.
@@ -120,8 +185,8 @@ pub struct GameListItemEntity {
     pub updated_at: SystemTime,
     /// Participating teams.
     pub teams: Vec<TeamSummaryEntity>,
-    /// ID of the playlist used in this game session.
-    pub playlist_id: Uuid,
+    /// ID of the questions sequence used in this game session.
+    pub questions_sequence_id: Uuid,
 }
 
 impl From<TeamEntity> for TeamSummaryEntity {
@@ -141,7 +206,7 @@ impl From<GameEntity> for GameListItemEntity {
             created_at: entity.created_at,
             updated_at: entity.updated_at,
             teams: entity.teams.into_iter().map(Into::into).collect(),
-            playlist_id: entity.playlist_id,
+            questions_sequence_id: entity.questions_sequence_id,
         }
     }
 }

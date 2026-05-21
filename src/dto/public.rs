@@ -3,8 +3,8 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::dto::{
-    common::GamePhaseSnapshot,
-    game::{SongSummary, TeamSummary},
+    common::{GamePhaseSnapshot, QuestionSnapshot},
+    game::TeamSummary,
 };
 
 /// Response payload listing the teams currently loaded in memory.
@@ -14,15 +14,15 @@ pub struct TeamsResponse {
     pub teams: Vec<TeamSummary>,
 }
 
-/// Response describing the song currently being played and progress made so far.
+/// Response describing the question currently being played and progress made so far.
 #[derive(Debug, Serialize, ToSchema)]
-pub struct CurrentSongResponse {
-    /// Details of the current song.
-    pub song: SongSummary,
-    /// Keys of point fields already found.
-    pub found_point_fields: Vec<String>,
-    /// Keys of bonus fields already found.
-    pub found_bonus_fields: Vec<String>,
+pub struct CurrentQuestionResponse {
+    /// Details of the current question.
+    pub question: QuestionSnapshot,
+    /// Answer IDs already found.
+    pub answers_ids: Vec<u8>,
+    /// Hint IDs already revealed.
+    pub hints_ids: Vec<u8>,
 }
 
 /// Response exposing the game's global phase as seen by the public.

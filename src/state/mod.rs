@@ -75,7 +75,7 @@ use crate::{
     config::{AppConfig, BuzzerPatternPreset},
     dao::{game_store::GameStore, models::TeamEntity},
     dto::{
-        common::{GamePhaseSnapshot, SongSnapshot},
+        common::{GamePhaseSnapshot, QuestionSnapshot},
         game::TeamSummary,
         phase::VisibleGamePhase,
     },
@@ -356,8 +356,8 @@ impl AppState {
     }
 
     /// Persist only game document (without team documents) for efficient partial updates.
-    /// Use this when only game-level fields have changed (e.g., current_song_index,
-    /// current_song_found, playlist_song_order, found fields).
+    /// Use this when only game-level fields have changed (e.g., current_question_index,
+    /// current_question_revealed, question_order, found answers).
     /// The `teams` field in the snapshot is ignored by the storage layer.
     pub async fn persist_current_game_without_teams(self: &Arc<Self>) -> Result<(), ServiceError> {
         self.persist_with_throttle(|store, snapshot| async move {
@@ -784,26 +784,26 @@ impl AppState {
             _ => None,
         };
 
-        let mut song = None;
+        let mut question = None;
         let mut scoreboard = None;
-        let mut found_point_fields = None;
-        let mut found_bonus_fields = None;
+        let mut answers_ids = None;
+        let mut hints_ids = None;
 
-        let need_song = matches!(
+        let need_question = matches!(
             phase,
             GamePhase::GameRunning(GameRunningPhase::Playing)
                 | GamePhase::GameRunning(GameRunningPhase::Reveal)
         );
-        let need_found_fields = need_song;
+        let need_progress = need_question;
         let need_scoreboard = matches!(phase, GamePhase::ShowScores);
 
-        if need_song || need_found_fields || need_scoreboard {
-            let (session_song, session_scoreboard, session_point_fields, session_bonus_fields) =
-                self.read_current_game(|maybe| {
+        if need_question || need_progress || need_scoreboard {
+            let (session_question, session_scoreboard, session_answer_ids, session_hint_ids) = self
+                .read_current_game(|maybe| {
                     if let Some(game) = maybe {
                         (
-                            if need_song {
-                                current_song_snapshot(game)
+                            if need_question {
+                                current_question_snapshot(game)
                             } else {
                                 None
                             },
@@ -812,13 +812,13 @@ impl AppState {
                             } else {
                                 None
                             },
-                            if need_found_fields {
-                                Some(game.found_point_fields.clone())
+                            if need_progress {
+                                Some(game.found_answer_ids.clone())
                             } else {
                                 None
                             },
-                            if need_found_fields {
-                                Some(game.found_bonus_fields.clone())
+                            if need_progress {
+                                Some(game.revealed_hint_ids.clone())
                             } else {
                                 None
                             },
@@ -829,10 +829,10 @@ impl AppState {
                 })
                 .await;
 
-            song = session_song;
+            question = session_question;
             scoreboard = session_scoreboard;
-            found_point_fields = session_point_fields;
-            found_bonus_fields = session_bonus_fields;
+            answers_ids = session_answer_ids;
+            hints_ids = session_hint_ids;
         }
 
         GamePhaseSnapshot {
@@ -841,10 +841,10 @@ impl AppState {
             degraded,
             pairing_team_id,
             paused_buzzer,
-            song,
+            question,
             scoreboard,
-            found_point_fields,
-            found_bonus_fields,
+            answers_ids,
+            hints_ids,
         }
     }
 
@@ -1089,9 +1089,9 @@ fn teams_to_summaries(teams: &IndexMap<Uuid, Team>) -> Vec<TeamSummary> {
     teams.clone().into_iter().map(TeamSummary::from).collect()
 }
 
-fn current_song_snapshot(game: &GameSession) -> Option<SongSnapshot> {
-    let index = game.current_song_index?;
-    let song_id = *game.playlist_song_order.get(index)?;
-    let song = game.playlist.songs.get(&song_id)?;
-    Some(SongSnapshot::from_game_song(song_id, song))
+fn current_question_snapshot(game: &GameSession) -> Option<QuestionSnapshot> {
+    let index = game.current_question_index?;
+    let question_id = *game.question_order.get(index)?;
+    let question = game.questions_sequence.questions.get(&question_id)?;
+    Some(QuestionSnapshot::from_game_question(question_id, question))
 }

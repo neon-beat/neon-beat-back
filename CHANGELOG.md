@@ -2,6 +2,107 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.9.0] - Expand blindtests into quiz question sequences
+
+### Added
+- **Quiz question model**: Games now use questions sequences instead of blindtest-only playlists.
+  A sequence can contain blindtest, multiple-choice, and open-text questions.
+- **Question variants**:
+  - Blindtest questions keep media playback metadata and now store answers as ID-addressable maps.
+  - Multiple-choice questions support prompts, optional media URLs, up to four answers, correctness flags, and hints.
+  - Open questions support prompts, optional media URLs, accepted answers, and hints.
+- **Auto-assigned IDs**: Imported answers and hints receive zero-based `u8` IDs so gameplay events can reference stable answer and hint identifiers.
+- **Question gameplay routes**:
+  - `POST /admin/game/question/answer-found`
+  - `POST /admin/game/question/hint`
+  - `POST /admin/game/question/submit-validation`
+- **Questions sequence routes**:
+  - `GET /admin/questions-sequence`
+  - `POST /admin/questions-sequence`
+  - `POST /admin/games/with-questions-sequence`
+  - `GET /public/question`
+- **Question SSE events**:
+  - `question.found_answers`
+  - `question.hints`
+  - `question.validation`
+- **Public question snapshots**: Public phase and current-question responses now expose independent question snapshot DTOs for API stability.
+- **Blindtest hint support**: Blindtest hints reveal answer IDs without marking those answers as found.
+
+### Changed
+- **Version**: Bumped crate version from `0.8.3` to `0.9.0`.
+- **Core naming**: Renamed runtime, DTO, route, storage, and documentation concepts from playlist/song/field terminology to questions sequence/question/answer terminology.
+- **Persistence schema**: Replaced playlist/song persistence entities with questions sequence/question entities for MongoDB and CouchDB stores.
+- **Game state**: Games now persist `questions_sequence_id`, `question_order`, `current_question_index`, and current question reveal state.
+- **Gameplay tracking**: Current progress now tracks found answer IDs and revealed hint IDs instead of point and bonus field keys.
+- **REST responses**:
+  - Game list items now expose `questions_sequence`.
+  - Start/next responses now use `question` / `NextQuestionResponse`.
+  - Public current question responses include `question`, `answers_ids`, and `hints_ids`.
+- **Validation**:
+  - Questions sequence inputs are validated at the HTTP boundary with nested question validation.
+  - Multiple-choice imports reject more than four answers.
+  - Multiple-choice and open question prompts and durations are validated.
+  - Blindtest and open questions require at least one answer.
+- **Multiple-choice public data**: Public multiple-choice answers currently expose both `text` and `is_correct`.
+- **OpenAPI documentation**: Registered the new question, answer, hint, snapshot, and legacy schemas in the generated API documentation.
+- **Docker build image**: Updated the Rust Docker base image from `1.90-slim` to `1.95-slim` and simplified `cargo-chef` reuse across build stages.
+- **README, protocols, and roadmap**: Updated project wording and examples from blindtest/playlist/song language to quiz/questions sequence/question language.
+
+### Migration notes for REST and SSE clients
+- **REST route replacements**:
+  - `GET /public/song` -> `GET /public/question`
+  - `POST /admin/game/answer` -> `POST /admin/game/question/submit-validation`
+  - `POST /admin/game/fields/found` -> `POST /admin/game/question/answer-found`
+  - `GET /admin/playlists` -> `GET /admin/questions-sequence`
+  - `POST /admin/playlists` -> `POST /admin/questions-sequence`
+  - `POST /admin/games/with-playlist` -> `POST /admin/games/with-questions-sequence`
+- **REST payload and response field replacements**:
+  - `playlist` -> `questions_sequence`
+  - `playlist_id` -> `questions_sequence_id`
+  - `song` -> `question`
+  - `song_id` -> `question_id`
+  - `current_song_index` -> `current_question_index`
+  - `song_found` / `current_song_found` concepts -> `question_revealed` / `current_question_revealed`
+  - found point and bonus field keys -> `answers_ids`
+  - revealed hint identifiers are exposed through `hints_ids`
+- **Question import format**: New sequence imports use `questions` with tagged items:
+  - `type: "blind_test"` for blindtest questions
+  - `type: "multiple_choice"` for multiple-choice questions
+  - `type: "open"` for open-text questions
+- **Answer addressing**: Clients should store and send numeric answer IDs instead of blindtest field keys when marking progress.
+  The backend assigns answer and hint IDs during questions sequence import.
+- **SSE event replacements**:
+  - `fields_found` -> `question.found_answers` with `{question_id, answers_ids}`
+  - `answer_validation` -> `question.validation` with `{question_id, valid}`
+  - `question.hints` is new and emits `{question_id, hints_ids}`
+- **Compatibility window**: Deprecated playlist routes still accept legacy playlist payloads, but new persisted documents use the questions sequence schema only.
+  Existing stored playlist/song documents must be migrated or re-imported.
+
+### Deprecated
+- **Legacy playlist routes** remain available as compatibility aliases but are marked deprecated in Rust and OpenAPI/Swagger:
+  - `GET /admin/playlists` -> use `GET /admin/questions-sequence`
+  - `POST /admin/playlists` -> use `POST /admin/questions-sequence`
+  - `POST /admin/games/with-playlist` -> use `POST /admin/games/with-questions-sequence`
+- **Legacy DTOs** are marked deprecated:
+  - `LegacyPlaylistListItem`
+  - `LegacyCreateGameWithPlaylistRequest`
+  - `LegacyPlaylistInput`
+  - `LegacySongInput`
+  - `LegacyPointFieldInput`
+- **Legacy service helpers** are marked deprecated and kept only for compatibility:
+  - `list_legacy_playlists`
+  - `is_legacy_playlist_sequence`
+
+### Removed
+- Replaced old public/admin route names in the main API surface:
+  - `GET /public/song`
+  - `POST /admin/game/answer`
+  - `POST /admin/game/fields/found`
+- Old stored playlist/song documents are no longer supported by the new persisted schema.
+
+### Testing
+- Added and updated tests for importing all question variants, auto ID assignment, empty sequence rejection, URL validation, multiple-choice answer-count validation, legacy playlist conversion, question validation events, answer-found events, and hint reveal validation.
+
 ## [v0.8.3] - Replace panics and expects by errors
 
 ### Changed

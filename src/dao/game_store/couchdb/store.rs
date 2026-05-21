@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::dao::{
     game_store::GameStore,
-    models::{GameEntity, GameListItemEntity, PlaylistEntity, TeamEntity},
+    models::{GameEntity, GameListItemEntity, QuestionsSequenceEntity, TeamEntity},
     storage::{StorageError, StorageResult},
 };
 
@@ -16,9 +16,9 @@ use super::{
     config::CouchConfig,
     error::{CouchDaoError, CouchResult},
     models::{
-        AllDocsResponse, CouchGameDocument, CouchPlaylistDocument, CouchTeamDocument, END_SUFFIX,
-        GAME_PREFIX, PLAYLIST_PREFIX, TEAM_PREFIX, extract_uuid, game_doc_id, playlist_doc_id,
-        team_doc_id,
+        AllDocsResponse, CouchGameDocument, CouchQuestionsSequenceDocument, CouchTeamDocument,
+        END_SUFFIX, GAME_PREFIX, QUESTIONS_SEQUENCE_PREFIX, TEAM_PREFIX, extract_uuid, game_doc_id,
+        questions_sequence_doc_id, team_doc_id,
     },
 };
 
@@ -452,19 +452,22 @@ impl GameStore for CouchGameStore {
             store.save_game_document(game).await.map_err(Into::into)
         })
     }
-    /// Persist a [`PlaylistEntity`] into CouchDB with optimistic retry on conflict.
-    fn save_playlist(&self, playlist: PlaylistEntity) -> BoxFuture<'static, StorageResult<()>> {
+    /// Persist a [`QuestionsSequenceEntity`] into CouchDB with optimistic retry on conflict.
+    fn save_questions_sequence(
+        &self,
+        sequence: QuestionsSequenceEntity,
+    ) -> BoxFuture<'static, StorageResult<()>> {
         let store = self.clone();
         Box::pin(async move {
-            let doc_id = playlist_doc_id(playlist.id);
+            let doc_id = questions_sequence_doc_id(sequence.id);
 
             store
                 .retry_on_conflict(|| async {
                     let rev = store
-                        .get_document::<CouchPlaylistDocument>(&doc_id)
+                        .get_document::<CouchQuestionsSequenceDocument>(&doc_id)
                         .await?
                         .and_then(|doc| doc.rev);
-                    let doc: CouchPlaylistDocument = (playlist.clone(), rev).into();
+                    let doc: CouchQuestionsSequenceDocument = (sequence.clone(), rev).into();
                     store.put_document(&doc_id, &doc).await
                 })
                 .await
@@ -496,12 +499,17 @@ impl GameStore for CouchGameStore {
         })
     }
 
-    /// Load a single [`PlaylistEntity`] from CouchDB.
-    fn find_playlist(&self, id: Uuid) -> BoxFuture<'static, StorageResult<Option<PlaylistEntity>>> {
+    /// Load a single [`QuestionsSequenceEntity`] from CouchDB.
+    fn find_questions_sequence(
+        &self,
+        id: Uuid,
+    ) -> BoxFuture<'static, StorageResult<Option<QuestionsSequenceEntity>>> {
         let store = self.clone();
         Box::pin(async move {
-            let doc_id = playlist_doc_id(id);
-            let maybe_doc = store.get_document::<CouchPlaylistDocument>(&doc_id).await?;
+            let doc_id = questions_sequence_doc_id(id);
+            let maybe_doc = store
+                .get_document::<CouchQuestionsSequenceDocument>(&doc_id)
+                .await?;
             Ok(maybe_doc.map(TryInto::try_into).transpose()?)
         })
     }
@@ -564,17 +572,17 @@ impl GameStore for CouchGameStore {
         })
     }
 
-    /// Produce a list of known playlists comprising identifiers and names.
-    fn list_playlists(&self) -> BoxFuture<'static, StorageResult<Vec<(Uuid, String)>>> {
+    /// Produce a list of known question sequences comprising identifiers and names.
+    fn list_questions_sequences(&self) -> BoxFuture<'static, StorageResult<Vec<(Uuid, String)>>> {
         let store = self.clone();
         Box::pin(async move {
             let docs = store
-                .list_documents::<CouchPlaylistDocument>(PLAYLIST_PREFIX)
+                .list_documents::<CouchQuestionsSequenceDocument>(QUESTIONS_SEQUENCE_PREFIX)
                 .await?;
             Ok(docs
                 .into_iter()
                 .map(|doc| -> Result<_, CouchDaoError> {
-                    let entity = PlaylistEntity::try_from(doc)?;
+                    let entity = QuestionsSequenceEntity::try_from(doc)?;
                     Ok((entity.id, entity.name))
                 })
                 .collect::<Result<Vec<_>, _>>()?)

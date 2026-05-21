@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -5,69 +7,205 @@ use validator::Validate;
 
 use crate::{
     dto::{game::TeamSummary, phase::VisibleGamePhase},
-    state::game::{PointField, Song, TeamColor},
+    state::game::{
+        BlindTestAnswer, BlindTestQuestion, Hint, MultipleChoiceAnswer, MultipleChoiceQuestion,
+        OpenAnswer, OpenQuestion, Question, TeamColor,
+    },
 };
 
-/// Snapshot of a point field for DTO use.
+/// Snapshot of a question including answer metadata.
 #[derive(Debug, Serialize, ToSchema, Clone)]
-pub struct PointFieldSnapshot {
-    /// Unique key identifying this field.
-    pub key: String,
-    /// The answer/value for this field.
-    pub value: String,
-    /// Points awarded for finding this field.
-    pub points: u8,
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum QuestionSnapshot {
+    /// Blindtest question snapshot.
+    BlindTest(BlindTestQuestionSnapshot),
+    /// Multiple-choice question snapshot.
+    MultipleChoice(MultipleChoiceQuestionSnapshot),
+    /// Open question snapshot.
+    Open(OpenQuestionSnapshot),
 }
 
-impl From<PointField> for PointFieldSnapshot {
-    fn from(field: PointField) -> Self {
-        Self {
-            key: field.key,
-            value: field.value,
-            points: field.points,
-        }
-    }
-}
-
-/// Snapshot of a song including point fields metadata.
+/// Snapshot of a blindtest question exposed to public runtime consumers.
 #[derive(Debug, Serialize, ToSchema, Clone)]
-pub struct SongSnapshot {
-    /// Unique identifier for the song.
+pub struct BlindTestQuestionSnapshot {
+    /// Unique identifier for the question.
     pub id: u32,
     /// Start time in milliseconds for playback.
     pub starts_at_ms: usize,
     /// Duration in milliseconds for guessing.
     pub guess_duration_ms: usize,
-    /// URL of the song media file.
+    /// URL of the media file.
     pub url: String,
-    /// Required point fields for this song.
-    pub point_fields: Vec<PointFieldSnapshot>,
-    /// Optional bonus fields for this song.
-    pub bonus_fields: Vec<PointFieldSnapshot>,
+    /// Answers for this question.
+    pub answers: HashMap<u8, BlindTestAnswerSnapshot>,
 }
 
-impl SongSnapshot {
-    /// Create a song snapshot from a game session song.
-    pub fn from_game_song(id: u32, song: &Song) -> Self {
-        Self {
-            id,
-            starts_at_ms: song.starts_at_ms,
-            guess_duration_ms: song.guess_duration_ms,
-            url: song.url.clone(),
-            point_fields: song
-                .point_fields
-                .clone()
-                .into_iter()
-                .map(PointFieldSnapshot::from)
-                .collect(),
-            bonus_fields: song
-                .bonus_fields
-                .clone()
-                .into_iter()
-                .map(PointFieldSnapshot::from)
-                .collect(),
+/// Snapshot of a multiple-choice question exposed to public runtime consumers.
+#[derive(Debug, Serialize, ToSchema, Clone)]
+pub struct MultipleChoiceQuestionSnapshot {
+    /// Unique identifier for the question.
+    pub id: u32,
+    /// Duration in milliseconds for guessing.
+    pub guess_duration_ms: usize,
+    /// Text prompt displayed to participants.
+    pub prompt: String,
+    /// Optional URL of a supporting media file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Possible answers for this question.
+    pub answers: HashMap<u8, MultipleChoiceAnswerSnapshot>,
+    /// Hints for this question.
+    pub hints: HashMap<u8, HintSnapshot>,
+}
+
+/// Snapshot of an open question exposed to public runtime consumers.
+#[derive(Debug, Serialize, ToSchema, Clone)]
+pub struct OpenQuestionSnapshot {
+    /// Unique identifier for the question.
+    pub id: u32,
+    /// Duration in milliseconds for guessing.
+    pub guess_duration_ms: usize,
+    /// Text prompt displayed to participants.
+    pub prompt: String,
+    /// Optional URL of a supporting media file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Accepted answers for this question.
+    pub answers: HashMap<u8, OpenAnswerSnapshot>,
+    /// Hints for this question.
+    pub hints: HashMap<u8, HintSnapshot>,
+}
+
+/// Snapshot of a blindtest answer exposed to public runtime consumers.
+#[derive(Debug, Serialize, ToSchema, Clone)]
+pub struct BlindTestAnswerSnapshot {
+    /// Unique key identifying this answer field.
+    pub key: String,
+    /// The answer/value for this field.
+    pub value: String,
+    /// Points awarded for finding this answer.
+    pub points: u8,
+    /// Whether this answer is a bonus answer.
+    pub is_bonus: bool,
+}
+
+/// Snapshot of a multiple-choice answer exposed to public runtime consumers.
+#[derive(Debug, Serialize, ToSchema, Clone)]
+pub struct MultipleChoiceAnswerSnapshot {
+    /// Answer text.
+    pub text: String,
+    /// Whether this answer is correct.
+    pub is_correct: bool,
+}
+
+/// Snapshot of an open answer exposed to public runtime consumers.
+#[derive(Debug, Serialize, ToSchema, Clone)]
+pub struct OpenAnswerSnapshot {
+    /// Accepted answer text.
+    pub text: String,
+}
+
+/// Snapshot of a question hint exposed to public runtime consumers.
+#[derive(Debug, Serialize, ToSchema, Clone)]
+pub struct HintSnapshot {
+    /// Hint text.
+    pub text: String,
+}
+
+impl QuestionSnapshot {
+    /// Create a question snapshot from a game session question.
+    pub fn from_game_question(id: u32, question: &Question) -> Self {
+        match question {
+            Question::BlindTest(question) => Self::BlindTest((id, question).into()),
+            Question::MultipleChoice(question) => Self::MultipleChoice((id, question).into()),
+            Question::Open(question) => Self::Open((id, question).into()),
         }
     }
+}
+
+impl From<(u32, &BlindTestQuestion)> for BlindTestQuestionSnapshot {
+    fn from((id, question): (u32, &BlindTestQuestion)) -> Self {
+        Self {
+            id,
+            starts_at_ms: question.starts_at_ms,
+            guess_duration_ms: question.guess_duration_ms,
+            url: question.url.clone(),
+            answers: map_snapshot_values(&question.answers),
+        }
+    }
+}
+
+impl From<(u32, &MultipleChoiceQuestion)> for MultipleChoiceQuestionSnapshot {
+    fn from((id, question): (u32, &MultipleChoiceQuestion)) -> Self {
+        Self {
+            id,
+            guess_duration_ms: question.guess_duration_ms,
+            prompt: question.prompt.clone(),
+            url: question.url.clone(),
+            answers: map_snapshot_values(&question.answers),
+            hints: map_snapshot_values(&question.hints),
+        }
+    }
+}
+
+impl From<(u32, &OpenQuestion)> for OpenQuestionSnapshot {
+    fn from((id, question): (u32, &OpenQuestion)) -> Self {
+        Self {
+            id,
+            guess_duration_ms: question.guess_duration_ms,
+            prompt: question.prompt.clone(),
+            url: question.url.clone(),
+            answers: map_snapshot_values(&question.answers),
+            hints: map_snapshot_values(&question.hints),
+        }
+    }
+}
+
+impl From<&BlindTestAnswer> for BlindTestAnswerSnapshot {
+    fn from(answer: &BlindTestAnswer) -> Self {
+        Self {
+            key: answer.key.clone(),
+            value: answer.value.clone(),
+            points: answer.points,
+            is_bonus: answer.is_bonus,
+        }
+    }
+}
+
+impl From<&MultipleChoiceAnswer> for MultipleChoiceAnswerSnapshot {
+    fn from(answer: &MultipleChoiceAnswer) -> Self {
+        Self {
+            text: answer.text.clone(),
+            is_correct: answer.is_correct,
+        }
+    }
+}
+
+impl From<&OpenAnswer> for OpenAnswerSnapshot {
+    fn from(answer: &OpenAnswer) -> Self {
+        Self {
+            text: answer.text.clone(),
+        }
+    }
+}
+
+impl From<&Hint> for HintSnapshot {
+    fn from(hint: &Hint) -> Self {
+        Self {
+            text: hint.0.clone(),
+        }
+    }
+}
+
+/// Convert a map of runtime values into their public snapshot DTO equivalents.
+fn map_snapshot_values<V, O>(values: &HashMap<u8, V>) -> HashMap<u8, O>
+where
+    for<'a> O: From<&'a V>,
+{
+    values
+        .iter()
+        .map(|(id, value)| (*id, O::from(value)))
+        .collect()
 }
 
 /// Shared snapshot describing the current gameplay phase and related context.
@@ -85,18 +223,18 @@ pub struct GamePhaseSnapshot {
     /// Present during pause phase for buzz-induced pauses to expose the buzzer identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paused_buzzer: Option<String>,
-    /// Present during playing/reveal phases to expose the current song.
+    /// Present during playing/reveal phases to expose the current question.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub song: Option<SongSnapshot>,
+    pub question: Option<QuestionSnapshot>,
     /// Present during scores phase to display the final scores.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scoreboard: Option<Vec<TeamSummary>>,
-    /// Present during playing/reveal phases to expose point fields already found.
+    /// Present during playing/reveal phases to expose answer IDs already found.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub found_point_fields: Option<Vec<String>>,
-    /// Present during playing/reveal phases to expose bonus fields already found.
+    pub answers_ids: Option<Vec<u8>>,
+    /// Present during playing/reveal phases to expose hint IDs already revealed.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub found_bonus_fields: Option<Vec<String>>,
+    pub hints_ids: Option<Vec<u8>>,
 }
 
 /// HSV representation shared by DTOs (REST, SSE, WS).

@@ -1,11 +1,11 @@
-FROM rust:1.90-slim AS build-base
+FROM rust:1.95-slim AS build-base
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
-
-FROM build-base AS chef
 RUN cargo install cargo-chef --locked
 WORKDIR /app
+
+FROM build-base AS chef
 COPY Cargo.lock Cargo.lock
 COPY Cargo.toml Cargo.toml
 # Create a dummy main.rs to allow cargo chef to build the dependency graph
@@ -15,8 +15,6 @@ RUN cargo chef prepare --recipe-path recipe.json
 FROM build-base AS builder
 ARG BUILD_TARGET=""
 ARG CARGO_FEATURES=""
-RUN cargo install cargo-chef --locked
-WORKDIR /app
 COPY --from=chef /app/recipe.json /app/recipe.json
 RUN if [ -n "$BUILD_TARGET" ]; then rustup target add "$BUILD_TARGET"; fi
 # Build dependencies - this is the caching Docker layer

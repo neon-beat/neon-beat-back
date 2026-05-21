@@ -7,7 +7,9 @@ use axum::{
 use crate::{
     dto::{
         admin::NoQuery,
-        public::{CurrentSongResponse, GamePhaseResponse, PairingStatusResponse, TeamsResponse},
+        public::{
+            CurrentQuestionResponse, GamePhaseResponse, PairingStatusResponse, TeamsResponse,
+        },
     },
     error::AppError,
     services::public_service,
@@ -18,7 +20,7 @@ use crate::{
 pub fn router() -> Router<SharedState> {
     Router::new()
         .route("/public/teams", get(get_teams))
-        .route("/public/song", get(get_current_song))
+        .route("/public/question", get(get_current_question))
         .route("/public/phase", get(get_game_phase))
         .route("/public/pairing", get(get_pairing_status))
 }
@@ -40,19 +42,19 @@ pub async fn get_teams(
 
 #[utoipa::path(
     get,
-    path = "/public/song",
+    path = "/public/question",
     tag = "public",
     responses(
-        (status = 200, description = "Current song", body = CurrentSongResponse),
-        (status = 404, description = "No active song")
+        (status = 200, description = "Current question", body = CurrentQuestionResponse),
+        (status = 404, description = "No active question")
     )
 )]
-/// Return the song currently being played and progress made so far.
-pub async fn get_current_song(
+/// Return the question currently being played and progress made so far.
+pub async fn get_current_question(
     State(state): State<SharedState>,
     Query(_no_query): Query<NoQuery>,
-) -> Result<Json<CurrentSongResponse>, AppError> {
-    let payload = public_service::get_current_song(&state).await?;
+) -> Result<Json<CurrentQuestionResponse>, AppError> {
+    let payload = public_service::get_current_question(&state).await?;
     Ok(Json(payload))
 }
 

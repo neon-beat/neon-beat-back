@@ -13,12 +13,12 @@ use super::{
 };
 use crate::dao::{
     game_store::GameStore,
-    models::{GameEntity, GameListItemEntity, PlaylistEntity, TeamEntity},
+    models::{GameEntity, GameListItemEntity, QuestionsSequenceEntity, TeamEntity},
     storage::StorageResult,
 };
 
 const GAME_COLLECTION_NAME: &str = "games";
-const PLAYLIST_COLLECTION_NAME: &str = "playlists";
+const QUESTIONS_SEQUENCE_COLLECTION_NAME: &str = "questions_sequences";
 
 /// MongoDB implementation of the GameStore trait.
 #[derive(Clone)]
@@ -138,11 +138,11 @@ impl MongoGameStore {
         guard.database.collection::<MongoTeamDocument>("teams")
     }
 
-    async fn playlist_collection(&self) -> Collection<PlaylistEntity> {
+    async fn questions_sequence_collection(&self) -> Collection<QuestionsSequenceEntity> {
         let guard = self.inner.state.read().await;
         guard
             .database
-            .collection::<PlaylistEntity>(PLAYLIST_COLLECTION_NAME)
+            .collection::<QuestionsSequenceEntity>(QUESTIONS_SEQUENCE_COLLECTION_NAME)
     }
 
     /// Helper to persist the game document.
@@ -191,15 +191,15 @@ impl MongoGameStore {
         Ok(result.deleted_count > 0)
     }
 
-    async fn save_playlist(&self, playlist: PlaylistEntity) -> MongoResult<()> {
-        let collection = self.playlist_collection().await;
+    async fn save_questions_sequence(&self, sequence: QuestionsSequenceEntity) -> MongoResult<()> {
+        let collection = self.questions_sequence_collection().await;
 
         collection
-            .replace_one(doc_id(playlist.id), &playlist)
+            .replace_one(doc_id(sequence.id), &sequence)
             .upsert(true)
             .await
-            .map_err(|source| MongoDaoError::SavePlaylist {
-                id: playlist.id,
+            .map_err(|source| MongoDaoError::SaveQuestionsSequence {
+                id: sequence.id,
                 source,
             })?;
 
@@ -248,13 +248,16 @@ impl MongoGameStore {
         Ok(Some(game_entity))
     }
 
-    async fn find_playlist(&self, id: Uuid) -> MongoResult<Option<PlaylistEntity>> {
-        let collection = self.playlist_collection().await;
+    async fn find_questions_sequence(
+        &self,
+        id: Uuid,
+    ) -> MongoResult<Option<QuestionsSequenceEntity>> {
+        let collection = self.questions_sequence_collection().await;
 
         collection
             .find_one(doc_id(id))
             .await
-            .map_err(|source| MongoDaoError::LoadPlaylist { id, source })
+            .map_err(|source| MongoDaoError::LoadQuestionsSequence { id, source })
     }
 
     async fn list_games(&self) -> MongoResult<Vec<GameListItemEntity>> {
@@ -277,20 +280,20 @@ impl MongoGameStore {
             .collect())
     }
 
-    async fn list_playlists(&self) -> MongoResult<Vec<(Uuid, String)>> {
-        let collection = self.playlist_collection().await;
+    async fn list_questions_sequences(&self) -> MongoResult<Vec<(Uuid, String)>> {
+        let collection = self.questions_sequence_collection().await;
 
-        let documents: Vec<PlaylistEntity> = collection
+        let documents: Vec<QuestionsSequenceEntity> = collection
             .find(doc! {})
             .await
-            .map_err(|source| MongoDaoError::ListPlaylists { source })?
+            .map_err(|source| MongoDaoError::ListQuestionsSequences { source })?
             .try_collect()
             .await
-            .map_err(|source| MongoDaoError::ListPlaylists { source })?;
+            .map_err(|source| MongoDaoError::ListQuestionsSequences { source })?;
 
         Ok(documents
             .into_iter()
-            .map(|playlist| (playlist.id, playlist.name))
+            .map(|sequence| (sequence.id, sequence.name))
             .collect())
     }
 }
@@ -311,9 +314,17 @@ impl GameStore for MongoGameStore {
         })
     }
 
-    fn save_playlist(&self, playlist: PlaylistEntity) -> BoxFuture<'static, StorageResult<()>> {
+    fn save_questions_sequence(
+        &self,
+        sequence: QuestionsSequenceEntity,
+    ) -> BoxFuture<'static, StorageResult<()>> {
         let store = self.clone();
-        Box::pin(async move { store.save_playlist(playlist).await.map_err(Into::into) })
+        Box::pin(async move {
+            store
+                .save_questions_sequence(sequence)
+                .await
+                .map_err(Into::into)
+        })
     }
 
     fn find_game(&self, id: Uuid) -> BoxFuture<'static, StorageResult<Option<GameEntity>>> {
@@ -321,9 +332,12 @@ impl GameStore for MongoGameStore {
         Box::pin(async move { store.find_game(id).await.map_err(Into::into) })
     }
 
-    fn find_playlist(&self, id: Uuid) -> BoxFuture<'static, StorageResult<Option<PlaylistEntity>>> {
+    fn find_questions_sequence(
+        &self,
+        id: Uuid,
+    ) -> BoxFuture<'static, StorageResult<Option<QuestionsSequenceEntity>>> {
         let store = self.clone();
-        Box::pin(async move { store.find_playlist(id).await.map_err(Into::into) })
+        Box::pin(async move { store.find_questions_sequence(id).await.map_err(Into::into) })
     }
 
     fn list_games(&self) -> BoxFuture<'static, StorageResult<Vec<GameListItemEntity>>> {
@@ -331,9 +345,9 @@ impl GameStore for MongoGameStore {
         Box::pin(async move { store.list_games().await.map_err(Into::into) })
     }
 
-    fn list_playlists(&self) -> BoxFuture<'static, StorageResult<Vec<(Uuid, String)>>> {
+    fn list_questions_sequences(&self) -> BoxFuture<'static, StorageResult<Vec<(Uuid, String)>>> {
         let store = self.clone();
-        Box::pin(async move { store.list_playlists().await.map_err(Into::into) })
+        Box::pin(async move { store.list_questions_sequences().await.map_err(Into::into) })
     }
 
     fn delete_game(&self, id: Uuid) -> BoxFuture<'static, StorageResult<bool>> {

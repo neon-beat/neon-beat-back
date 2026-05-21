@@ -17,7 +17,7 @@ pub enum VisibleGamePhase {
     Playing,
     /// Game is paused (manual or buzz).
     Pause,
-    /// Revealing the answer for the current song.
+    /// Revealing the answer for the current question.
     Reveal,
     /// Showing final scores.
     Scores,

@@ -1,10 +1,11 @@
 # Neon Beat back
 
-[![Version](https://img.shields.io/badge/version-0.8.2-blue.svg)](https://github.com/neon-beat/neon-beat-back/releases)
+[![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)](https://github.com/neon-beat/neon-beat-back/releases)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green.svg)](LICENSE)
 
-> A real-time Rust backend for homemade blind test games, featuring WebSocket buzzer integration, Server-Sent Events for live updates, and flexible MongoDB/CouchDB persistence. Built for fast-paced music trivia with automatic state management and buzzer pairing workflows.
+> A real-time Rust backend for homemade quiz games, featuring blindtest, multiple-choice, and open-text questions with WebSocket buzzer integration, Server-Sent Events for live updates, and flexible MongoDB/CouchDB persistence.
+Built for fast-paced trivia with automatic state management and buzzer pairing workflows.
 
 📖 **[API Documentation](https://neon-beat.github.io/neon-beat-back/)** - Full OpenAPI/Swagger documentation deployed on GitHub Pages
 
@@ -14,11 +15,11 @@ See [CHANGELOG](CHANGELOG.md) for detailed release notes.
 
 - **RESTful API**: Comprehensive REST API with admin and public endpoints for game management, team operations, score adjustments, and game state control.
 - **Real-time communications**: WebSocket connections for buzzer devices with automatic reconnection support, plus Server-Sent Events (SSE) for public and admin UIs with automatic degraded mode handling.
-- **Configurable persistence**: Build with MongoDB or CouchDB support and select the active store per deployment. Features automatic database reconnection and graceful degraded mode when storage is temporarily unavailable. Playlists are stored in their own collection so games can reuse curated track lists without re-importing them each time.
+- **Configurable persistence**: Build with MongoDB or CouchDB support and select the active store per deployment. Features automatic database reconnection and graceful degraded mode when storage is temporarily unavailable. Questions sequences are stored in their own collection so games can reuse curated quiz content without re-importing it each time.
 - **Advanced state machine**: Finite state machine managing the complete game lifecycle with transaction-based transitions, robust pairing workflow, and persistence of game progress across restarts.
 - **Team & buzzer management**: Complete team lifecycle management (create, update, delete) during prep phase, with buzzer pairing workflow that supports rollback and conflict resolution.
 - **Swagger UI**: The full OpenAPI document is generated with utoipa and served through Swagger UI (`/docs`) for quick manual testing, or view it on [GitHub Pages](https://neon-beat.github.io/neon-beat-back/).
-- **Flexible playlist handling**: Support for playlist shuffling at game creation/load time while preserving original ordering when not shuffled, with smart "New Game+" behavior for completed playlists.
+- **Flexible sequence handling**: Support for question shuffling at game creation/load time while preserving original ordering when not shuffled, with smart "New Game+" behavior for completed sequences.
 
 ---
 
@@ -35,11 +36,11 @@ docker build -t neon-beat-back .
 
 **Run with Docker Compose:**
 ```bash
-# Copy the example compose file
-cp docker-compose.example.yaml docker-compose.yaml
+# Start with the CouchDB compose file, or copy docker-compose.mongodb-example.yaml for MongoDB
+cp docker-compose.couchdb-example.yml docker-compose.yaml
 
 # Start the services
-docker compose up
+docker compose up --build
 ```
 
 The backend will be available at `http://localhost:8080`. Try these endpoints:
@@ -142,7 +143,7 @@ The Neon Beat back project follows a layered architecture, separating concerns i
 - **`dao` (Data Access Object)**: This layer is responsible for interacting with external data sources or systems, such as a MongoDB database. It abstracts the details of data persistence and retrieval from the service layer.
   - **`models`**: This submodule within the `dao` layer defines the data models that represent the entities and structures used when interacting with external systems. These models ensure consistent data representation across the application's interactions with various data sources.
 - **`dto` (Data Transfer Object)**: This layer defines the data structures used for transferring data between different layers of the application, particularly between the `routes` and `services` layers, and for external API communication. These structures ensure consistent data formats.
-- **`state`**: Centralises runtime state kept in memory while the server runs. It exposes the finite-state machine that coordinates gameplay, the in-memory `GameSession`/playlist data used by services and DTOs, the SSE hubs, and shared resources such as buzzer connections.
+- **`state`**: Centralises runtime state kept in memory while the server runs. It exposes the finite-state machine that coordinates gameplay, the in-memory `GameSession`/questions sequence data used by services and DTOs, the SSE hubs, and shared resources such as buzzer connections.
 
 ### System interactions
 ```mermaid
@@ -178,7 +179,7 @@ stateDiagram-v2
       GM: Game Master
    end note
    note left of Idle
-      Game, playlist and teams management. Visible in admin front.
+      Game, questions sequence and teams management. Visible in admin front.
    end note
 
    Idle --> GameRunning: GM creates/loads game
@@ -198,7 +199,7 @@ stateDiagram-v2
       Reveal --> Playing: GM triggers next
       Playing --> Reveal: GM triggers reveal
    }
-   GameRunning --> ShowScores: Playlist ended or GM stops
+   GameRunning --> ShowScores: Questions sequence ended or GM stops
    ShowScores --> Idle: GM ends game
 ```
 
@@ -275,28 +276,27 @@ stateDiagram-v2
 
 ## Core Features
 
-### Playlist & Game Management
+### Questions Sequence & Game Management
 
-- **Playlist import & persistence**: JSON playlists where each song has some basic properties and are persisted atomically:
-   - Timestamp at which the song should start
-   - Time to identify a song
-   - Song URL
-   - "Point fields" are fields to find for the song, that can give points to a team: for example, song name and artist (this list of field is dynamic and not empty)
-   - "Bonus point fields" are optional fields to find for the song, that can give bonus points to a team (this list of field is dynamic and may be empty)
-   - During game creation/loading, the playlist song order can be optionally shuffled via the `shuffle` query parameter; if not shuffled, the original JSON order is preserved. Once persisted, games maintain their defined song order across restarts.
-   - Playlists are validated at import time to prevent empty playlists.
+- **Questions sequence import & persistence**: JSON sequences contain ordered questions and are persisted atomically:
+   - Blindtest questions with time to answer, media URL, start timestamp, answer map, points, and bonus answer markers
+   - Multiple-choice questions with time to answer, prompt, optional URL, up to four answers, correctness flags, and hints
+   - Open questions with time to answer, prompt, optional URL, accepted answers, and hints
+   - Answers and hints receive auto-assigned `u8` IDs at import time
+   - During game creation/loading, the question order can be optionally shuffled via the `shuffle` query parameter; if not shuffled, the original JSON order is preserved. Once persisted, games maintain their defined question order across restarts.
+   - Questions sequences are validated at import time to prevent empty sequences and empty answer sets.
 - **Game bootstrap**: Game can be created or loaded (from database) during the idle state:
    - the game contains a list of teams (teams have a unique buzzer, a name and a score)
-   - the game references a persisted playlist entity (shared across games) which is embedded into the runtime session when the game starts
-   - the game contains a game state (frequently saved in database), which contains a playlist state (the playlist state remembers whether a song has been played or not) and must match the playlist identifiers exactly
-   - **New Game+ behavior**: if a playlist was completed in a prior game session, starting this game session will treat it as a fresh run with all songs available again.
+   - the game references a persisted questions sequence entity (shared across games) which is embedded into the runtime session when the game starts
+   - the game contains a game state (frequently saved in database), which contains sequence progress (the sequence state remembers whether a question has been answered or not) and must match the question identifiers exactly
+   - **New Game+ behavior**: if a sequence was completed in a prior game session, starting this game session will treat it as a fresh run with all questions available again.
 
 ### State Machine & Game Flow
 
 - **State machine execution**: Gameplay transitions follow the diagram above (`Game state flow`), persisting progress and orchestrating pauses, reveals, and scoring with transaction-based state planning (prepare/apply/abort).
-- **Real-time game state tracking**: Current song progress tracked in memory including:
-   - Found point fields and bonus point fields for active songs
-   - Song revelation state (persisted to support server restarts)
+- **Real-time game state tracking**: Current question progress tracked in memory including:
+   - Found answer IDs and revealed hint IDs for active questions
+   - Question revelation state (persisted to support server restarts)
    - Team turn management during pause phases
 
 ### Team & Buzzer Management
@@ -315,20 +315,20 @@ stateDiagram-v2
 📖 **Complete API documentation** available via Swagger UI at `/docs` or on [GitHub Pages](https://neon-beat.github.io/neon-beat-back/).
 
 **Admin endpoints** (require authentication via SSE token):
-- **Game & playlist management**: create, load, delete, and list games and playlists
-- **Game flow control**: start, pause, resume, reveal, next song, stop, and end game
+- **Game & sequence management**: create, load, delete, and list games and questions sequences
+- **Game flow control**: start, pause, resume, reveal, next question, stop, and end game
 - **Team management**: create, update, and delete teams during prep phase
-- **Scoring & field tracking**: adjust team scores, mark point/bonus fields as found, validate answers with tri-state feedback (correct/incomplete/wrong)
+- **Scoring & answer tracking**: adjust team scores, mark answers as found, reveal hints, validate answers with tri-state feedback (correct/incomplete/wrong)
 - **Pairing workflow**: start and abort buzzer pairing sessions with rollback support
 
 **Public endpoints** (no authentication):
-- Get teams information, current song details (with found fields), and game phase
+- Get teams information, current question details (with found answer and hint IDs), and game phase
 - Health checks, system status, and pairing status queries
 
 **Input validation**:
 - Unknown or unexpected query/path parameters are rejected with `400 Bad Request`
 - Required fields are validated for presence and format
-- Song IDs, team IDs, and playlist IDs are validated against the current game session
+- Question IDs, team IDs, and questions sequence IDs are validated against the current game session
 - Shuffle parameter can only be used when appropriate (e.g., cannot shuffle mid-game)
 
 ### Real-time Interfaces
@@ -343,7 +343,7 @@ The system provides two real-time protocols for keeping all clients synchronized
 - Patterns change based on game phase and buzzer state
 
 **Server-Sent Events (`/sse/*`) for frontends:**
-- **Public stream** (`/sse/public`): 14 event types, no authentication required
+- **Public stream** (`/sse/public`): 15 event types, no authentication required
 - **Admin stream** (`/sse/admin`): 7 event types, token authentication, single connection enforced
 - Events cover game lifecycle, team changes, pairing workflow, and gameplay updates
 - Admin token issued on handshake for authenticating REST API calls
@@ -495,7 +495,7 @@ Write operations use fine-grained locking to prevent conflicts while maintaining
 
 CouchDB write operations automatically retry on 409 (conflict) errors:
 - Exponential backoff: 50ms → 100ms → 200ms → 400ms
-- Applied to: game saves, team saves, playlist saves
+- Applied to: game saves, team saves, questions sequence saves
 - Delete operations intentionally fail on conflict (semantic correctness)
 
 **4. Graceful Shutdown**
@@ -632,9 +632,9 @@ This section documents key architectural and behavioral choices made during deve
 - Public SSE connections are not actively managed on disconnection
 - Rationale: Simplifies server-side connection management for read-only public streams
 
-**Playlist modification:**
-- Playlists cannot be modified after import; re-import the playlist with changes instead
-- Rationale: Ensures playlist immutability and consistency across games that reference them
+**Questions sequence modification:**
+- Questions sequences cannot be modified after import; re-import the sequence with changes instead
+- Rationale: Ensures sequence immutability and consistency across games that reference them
 
 **Buzzer timeout after buzz:**
 - Configurable via integer property (default: Infinite)
@@ -644,7 +644,7 @@ This section documents key architectural and behavioral choices made during deve
 - Configurable via boolean property (default: re-buzz authorized)
 - Rationale: Allows game masters to choose between competitive urgency or giving teams multiple attempts
 
-**Game and playlist name uniqueness:**
+**Game and questions sequence name uniqueness:**
 - Names are not enforced to be unique
 - Rationale: Simplifies game management and allows multiple sessions with similar themes
 

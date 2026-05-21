@@ -8,16 +8,18 @@ use uuid::Uuid;
 
 use crate::{
     config::BuzzerPatternPreset,
+    dao::models::{QuestionEntity, QuestionsSequenceEntity},
     dto::{
         admin::{
-            ActionResponse, AnswerValidationRequest, CreateGameRequest, CreateTeamRequest,
-            FieldKind, FieldsFoundResponse, GameListItem, MarkFieldRequest, NextSongResponse,
-            PlaylistListItem, ScoreAdjustmentRequest, ScoreUpdateResponse, StartGameResponse,
-            StartPairingRequest, StopGameResponse, UpdateTeamRequest,
+            ActionResponse, AnswerFoundRequest, AnswersFoundResponse, CreateGameRequest,
+            CreateTeamRequest, GameListItem, NextQuestionResponse, QuestionHintRequest,
+            QuestionHintsResponse, QuestionValidationRequest, QuestionsSequenceListItem,
+            ScoreAdjustmentRequest, ScoreUpdateResponse, StartGameResponse, StartPairingRequest,
+            StopGameResponse, UpdateTeamRequest,
         },
         game::{
-            CreateGameWithPlaylistRequest, GameSummary, PlaylistInput, PlaylistSummary,
-            SongSummary, TeamInput, TeamSummary,
+            CreateGameWithQuestionsSequenceRequest, GameSummary, QuestionSummary,
+            QuestionsSequenceInput, QuestionsSequenceSummary, TeamInput, TeamSummary,
         },
     },
     error::ServiceError,
@@ -29,7 +31,7 @@ use crate::{
     },
     state::{
         SharedState,
-        game::{GameSession, PointField},
+        game::GameSession,
         state_machine::{
             FinishReason, GameEvent, GamePhase, GameRunningPhase, PairingSession, PauseKind,
             PrepStatus,
@@ -37,6 +39,9 @@ use crate::{
         transitions::run_transition_with_broadcast,
     },
 };
+
+#[allow(deprecated)]
+use crate::dto::admin::LegacyPlaylistListItem;
 
 async fn ensure_prep_phase(state: &SharedState) -> Result<PrepStatus, ServiceError> {
     match state.state_machine_phase().await {
@@ -64,8 +69,7 @@ fn assert_unique_buzzer(
     Ok(())
 }
 
-/// Borrow the active game session mutably or produce an invalid-state error.
-/// Return the games persisted in storage for selection in the admin UI.
+/// Extract the running subphase or produce an invalid-state error.
 fn ensure_running_phase(phase: GamePhase) -> Result<GameRunningPhase, ServiceError> {
     match phase {
         GamePhase::GameRunning(sub) => Ok(sub),
@@ -86,13 +90,16 @@ pub async fn list_games(state: &SharedState) -> Result<Vec<GameListItem>, Servic
 
     let mut games_list = Vec::with_capacity(game_entities.len());
     for game in game_entities {
-        let playlist = store
-            .find_playlist(game.playlist_id)
+        let questions_sequence = store
+            .find_questions_sequence(game.questions_sequence_id)
             .await?
             .ok_or_else(|| {
-                ServiceError::NotFound(format!("playlist {} not found", game.playlist_id))
+                ServiceError::NotFound(format!(
+                    "questions sequence {} not found",
+                    game.questions_sequence_id
+                ))
             })?;
-        games_list.push((game, playlist).try_into()?);
+        games_list.push((game, questions_sequence).try_into()?);
     }
 
     Ok(games_list)
@@ -106,26 +113,76 @@ pub async fn get_game_by_id(state: &SharedState, id: Uuid) -> Result<GameSummary
         return Err(ServiceError::NotFound(format!("game `{id}` not found")));
     };
 
-    let playlist = store
-        .find_playlist(game.playlist_id)
+    let questions_sequence = store
+        .find_questions_sequence(game.questions_sequence_id)
         .await?
         .ok_or_else(|| {
-            ServiceError::NotFound(format!("playlist {} not found", game.playlist_id))
+            ServiceError::NotFound(format!(
+                "questions sequence {} not found",
+                game.questions_sequence_id
+            ))
         })?;
 
-    let game_session: GameSession = (game, playlist).into();
+    let game_session: GameSession = (game, questions_sequence).into();
 
     Ok(game_session.try_into()?)
 }
 
-/// Return the playlists that can seed new games.
-pub async fn list_playlists(state: &SharedState) -> Result<Vec<PlaylistListItem>, ServiceError> {
+/// Return the questions sequences that can seed new games.
+pub async fn list_questions_sequences(
+    state: &SharedState,
+) -> Result<Vec<QuestionsSequenceListItem>, ServiceError> {
     let store = state.require_game_store().await?;
-    let entries = store.list_playlists().await?;
+    let entries = store.list_questions_sequences().await?;
     Ok(entries
         .into_iter()
-        .map(|(id, name)| PlaylistListItem { id, name })
+        .map(|(id, name)| QuestionsSequenceListItem { id, name })
         .collect())
+}
+
+/// Return blindtest-only questions sequences through the deprecated playlist projection.
+#[allow(deprecated)]
+#[deprecated(
+    since = "0.9.0",
+    note = "Deprecated legacy playlist compatibility. Use list_questions_sequences instead."
+)]
+pub async fn list_legacy_playlists(
+    state: &SharedState,
+) -> Result<Vec<LegacyPlaylistListItem>, ServiceError> {
+    let store = state.require_game_store().await?;
+    let entries = store.list_questions_sequences().await?;
+    let mut playlists = Vec::new();
+
+    for (id, _name) in entries {
+        let sequence = store.find_questions_sequence(id).await?.ok_or_else(|| {
+            ServiceError::NotFound(format!("questions sequence `{id}` not found"))
+        })?;
+
+        if is_legacy_playlist_sequence(&sequence) {
+            playlists.push(
+                QuestionsSequenceListItem {
+                    id: sequence.id,
+                    name: sequence.name,
+                }
+                .into(),
+            );
+        }
+    }
+
+    Ok(playlists)
+}
+
+/// Return true when a persisted questions sequence can be exposed as a legacy playlist.
+#[deprecated(
+    since = "0.9.0",
+    note = "Deprecated legacy playlist compatibility. Remove with legacy playlist route support."
+)]
+fn is_legacy_playlist_sequence(sequence: &QuestionsSequenceEntity) -> bool {
+    !sequence.questions.is_empty()
+        && sequence
+            .questions
+            .iter()
+            .all(|question| matches!(question, QuestionEntity::BlindTest(_)))
 }
 
 /// Delete a game from storage by ID. Cannot delete a currently running game.
@@ -155,12 +212,12 @@ pub async fn delete_game(state: &SharedState, id: Uuid) -> Result<(), ServiceErr
     }
 }
 
-/// Create and persist a reusable playlist definition on behalf of admins.
-pub async fn create_playlist(
+/// Create and persist a reusable questions sequence definition on behalf of admins.
+pub async fn create_questions_sequence(
     state: &SharedState,
-    request: PlaylistInput,
-) -> Result<PlaylistSummary, ServiceError> {
-    let (summary, _playlist) = game_service::create_playlist(state, request).await?;
+    request: QuestionsSequenceInput,
+) -> Result<QuestionsSequenceSummary, ServiceError> {
+    let (summary, _sequence) = game_service::create_questions_sequence(state, request).await?;
     Ok(summary)
 }
 
@@ -172,10 +229,10 @@ pub async fn create_playlist(
 pub async fn load_game(
     state: &SharedState,
     id: Uuid,
-    shuffle_playlist: bool,
+    shuffle_questions: bool,
 ) -> Result<GameSummary, ServiceError> {
     run_transition_with_broadcast(state, GameEvent::StartGame, move || async move {
-        game_service::load_game(state, id, shuffle_playlist).await
+        game_service::load_game(state, id, shuffle_questions).await
     })
     .await
 }
@@ -183,46 +240,46 @@ pub async fn load_game(
 /// Create a new game definition on behalf of admins.
 pub async fn create_game(
     state: &SharedState,
-    request: CreateGameWithPlaylistRequest,
-    shuffle_playlist: bool,
+    request: CreateGameWithQuestionsSequenceRequest,
+    shuffle_questions: bool,
 ) -> Result<GameSummary, ServiceError> {
     run_transition_with_broadcast(state, GameEvent::StartGame, move || async move {
-        let (_playlist_summary, playlist_model) =
-            game_service::create_playlist(state, request.playlist).await?;
+        let (_sequence_summary, sequence_model) =
+            game_service::create_questions_sequence(state, request.questions_sequence).await?;
         game_service::create_game(
             state,
             request.name,
             request.teams,
-            playlist_model.id,
-            Some(playlist_model),
-            shuffle_playlist,
+            sequence_model.id,
+            Some(sequence_model),
+            shuffle_questions,
         )
         .await
     })
     .await
 }
 
-/// Create a game from a stored playlist template.
-pub async fn create_game_from_playlist(
+/// Create a game from a stored questions sequence template.
+pub async fn create_game_from_questions_sequence(
     state: &SharedState,
     request: CreateGameRequest,
-    shuffle_playlist: bool,
+    shuffle_questions: bool,
 ) -> Result<GameSummary, ServiceError> {
     run_transition_with_broadcast(state, GameEvent::StartGame, move || async move {
         game_service::create_game(
             state,
             request.name,
             request.teams,
-            request.playlist_id,
+            request.questions_sequence_id,
             None,
-            shuffle_playlist,
+            shuffle_questions,
         )
         .await
     })
     .await
 }
 
-/// Move the admin-controlled game into the running phase and expose the first song.
+/// Move the admin-controlled game into the running phase and expose the first question.
 pub async fn start_game(state: &SharedState) -> Result<StartGameResponse, ServiceError> {
     if let GamePhase::GameRunning(GameRunningPhase::Prep(PrepStatus::Ready)) =
         state.state_machine_phase().await
@@ -257,10 +314,12 @@ pub async fn start_game(state: &SharedState) -> Result<StartGameResponse, Servic
             .await?;
     }
 
-    let song_summary = load_next_song(state, true).await?.ok_or_else(|| {
-        ServiceError::InvalidState("no song found in playlist after starting the game".into())
+    let question_summary = load_next_question(state, true).await?.ok_or_else(|| {
+        ServiceError::InvalidState("no question found in sequence after starting the game".into())
     })?;
-    Ok(StartGameResponse { song: song_summary })
+    Ok(StartGameResponse {
+        question: question_summary,
+    })
 }
 
 /// Pause gameplay manually through the admin controls.
@@ -311,12 +370,12 @@ pub async fn resume_game(state: &SharedState) -> Result<ActionResponse, ServiceE
     Ok(result)
 }
 
-/// Reveal the current song and conclude any outstanding buzz sequence.
+/// Reveal the current question and conclude any outstanding buzz sequence.
 pub async fn reveal(state: &SharedState) -> Result<ActionResponse, ServiceError> {
     let result = run_transition_with_broadcast(state, GameEvent::Reveal, move || async move {
         state
             .with_current_game_mut(|game| {
-                game.current_song_found = true;
+                game.current_question_revealed = true;
                 game.updated_at = SystemTime::now();
                 Ok(())
             })
@@ -345,67 +404,68 @@ pub async fn reveal(state: &SharedState) -> Result<ActionResponse, ServiceError>
     Ok(result)
 }
 
-/// Advance to the next song or finish the playlist when exhausted.
-pub async fn next_song(state: &SharedState) -> Result<NextSongResponse, ServiceError> {
-    let next_song_summary = load_next_song(state, false).await?;
-    let response = NextSongResponse {
-        finished: next_song_summary.is_none(),
-        song: next_song_summary,
+/// Advance to the next question or finish the sequence when exhausted.
+pub async fn next_question(state: &SharedState) -> Result<NextQuestionResponse, ServiceError> {
+    let next_question_summary = load_next_question(state, false).await?;
+    let response = NextQuestionResponse {
+        finished: next_question_summary.is_none(),
+        question: next_question_summary,
     };
     Ok(response)
 }
 
-async fn load_next_song(
+/// Advance the current game to the next question and return its admin summary.
+async fn load_next_question(
     state: &SharedState,
     start: bool,
-) -> Result<Option<SongSummary>, ServiceError> {
-    let (current_song_index, playlist_length, current_song_found) = state
+) -> Result<Option<QuestionSummary>, ServiceError> {
+    let (current_question_index, sequence_length, current_question_revealed) = state
         .with_current_game(|game| {
             Ok((
-                game.current_song_index,
-                game.playlist_song_order.len(),
-                game.current_song_found,
+                game.current_question_index,
+                game.question_order.len(),
+                game.current_question_revealed,
             ))
         })
         .await?;
-    let next_song_index: Option<usize> = if start && !current_song_found {
-        current_song_index.or(Some(0)) // "New Game +" if playlist was completed in the previous session
+    let next_question_index: Option<usize> = if start && !current_question_revealed {
+        current_question_index.or(Some(0)) // "New Game +" if sequence was completed in the previous session
     } else {
-        let next_song_index = current_song_index
-            .ok_or_else(|| ServiceError::InvalidState("no active song: playlist is over".into()))?
-            + 1;
-        if next_song_index < playlist_length {
-            Some(next_song_index)
+        let next_question_index = current_question_index.ok_or_else(|| {
+            ServiceError::InvalidState("no active question: sequence is over".into())
+        })? + 1;
+        if next_question_index < sequence_length {
+            Some(next_question_index)
         } else if start {
-            Some(0) // "New Game +" if playlist was completed in the previous session
+            Some(0) // "New Game +" if sequence was completed in the previous session
         } else {
-            None // Playlist completed
+            None // Sequence completed
         }
     };
     let event = if start {
         GameEvent::GameConfigured
-    } else if next_song_index.is_some() {
-        GameEvent::NextSong
+    } else if next_question_index.is_some() {
+        GameEvent::NextQuestion
     } else {
-        GameEvent::Finish(FinishReason::PlaylistCompleted)
+        GameEvent::Finish(FinishReason::QuestionsSequenceCompleted)
     };
 
     let result = run_transition_with_broadcast(state, event, move || async move {
         let summary = state
             .with_current_game_mut(|game| {
-                if game.current_song_index != next_song_index {
-                    game.found_point_fields.clear();
-                    game.found_bonus_fields.clear();
+                if game.current_question_index != next_question_index {
+                    game.found_answer_ids.clear();
+                    game.revealed_hint_ids.clear();
                 }
-                game.current_song_index = next_song_index;
-                game.current_song_found = false;
+                game.current_question_index = next_question_index;
+                game.current_question_revealed = false;
                 game.updated_at = SystemTime::now();
 
-                if let Some(index) = next_song_index {
-                    let (song_id, song) = game.get_song(index).ok_or_else(|| {
-                        ServiceError::InvalidState("song not found in playlist".into())
+                if let Some(index) = next_question_index {
+                    let (question_id, question) = game.get_question(index).ok_or_else(|| {
+                        ServiceError::InvalidState("question not found in sequence".into())
                     })?;
-                    Ok(Some((song_id, song).into()))
+                    Ok(Some((question_id, question).into()))
                 } else {
                     Ok(None)
                 }
@@ -416,7 +476,7 @@ async fn load_next_song(
         Ok(summary)
     })
     .await?;
-    if next_song_index.is_some() {
+    if next_question_index.is_some() {
         state
             .with_current_game(|game| {
                 game.teams.iter().for_each(|(team_id, team)| {
@@ -497,89 +557,134 @@ pub async fn end_game(state: &SharedState) -> Result<ActionResponse, ServiceErro
 // Gameplay adjustments that do not alter the state machine
 // ---------------------------------------------------------------------------
 
-/// Register a discovered field and broadcast the updated state to clients.
-pub async fn mark_field_found(
+/// Register a discovered answer and broadcast the updated state to clients.
+pub async fn mark_answer_found(
     state: &SharedState,
-    request: MarkFieldRequest,
-) -> Result<FieldsFoundResponse, ServiceError> {
+    request: AnswerFoundRequest,
+) -> Result<AnswersFoundResponse, ServiceError> {
     let phase = state.state_machine_phase().await;
     let running_phase = ensure_running_phase(phase)?;
     if matches!(running_phase, GameRunningPhase::Prep(_)) {
         return Err(ServiceError::InvalidState(
-            "cannot mark fields during preparation".into(),
+            "cannot mark answers during preparation".into(),
         ));
     }
 
-    let MarkFieldRequest {
-        song_id,
-        field_key,
-        kind,
+    let AnswerFoundRequest {
+        question_id,
+        answer_id,
     } = request;
 
     let response = state
         .with_current_game_mut(|game| {
-            let index = game.current_song_index.ok_or_else(|| {
-                ServiceError::InvalidState("no active song: playlist is over".into())
-            })?;
-            let expected_song_id = *game
-                .playlist_song_order
-                .get(index)
-                .ok_or_else(|| ServiceError::InvalidState("song index out of bounds".into()))?;
-            if expected_song_id != song_id {
-                return Err(ServiceError::InvalidInput(
-                    "song id does not match the current song".into(),
-                ));
+            let question = current_question(game, question_id)?;
+
+            if !question.has_answer(answer_id) {
+                return Err(ServiceError::InvalidInput(format!(
+                    "answer `{answer_id}` does not exist for this question"
+                )));
             }
 
-            let song = game
-                .playlist
-                .songs
-                .get(&song_id)
-                .ok_or_else(|| ServiceError::InvalidState("song not found".into()))?;
-
-            match kind {
-                FieldKind::Point => {
-                    ensure_field_exists(&song.point_fields, &field_key)?;
-                    if !game.found_point_fields.contains(&field_key) {
-                        game.found_point_fields.push(field_key.clone());
-                    }
-                }
-                FieldKind::Bonus => {
-                    ensure_field_exists(&song.bonus_fields, &field_key)?;
-                    if !game.found_bonus_fields.contains(&field_key) {
-                        game.found_bonus_fields.push(field_key.clone());
-                    }
+            if !game.found_answer_ids.contains(&answer_id) {
+                match question {
+                    crate::state::game::Question::BlindTest { .. }
+                        if game.revealed_hint_ids.contains(&answer_id) => {
+                        return Err(ServiceError::InvalidState(
+                            "cannot mark an answer as found if its corresponding hint has already been revealed"
+                                .into(),
+                        ));
+                        }
+                    _ => game.found_answer_ids.push(answer_id),
                 }
             }
 
-            Ok(FieldsFoundResponse {
-                song_id,
-                point_fields: game.found_point_fields.clone(),
-                bonus_fields: game.found_bonus_fields.clone(),
+            Ok(AnswersFoundResponse {
+                question_id,
+                answers_ids: game.found_answer_ids.clone(),
             })
         })
         .await?;
 
     state.persist_current_game_without_teams().await?;
 
-    sse_events::broadcast_fields_found(
+    sse_events::broadcast_question_found_answers(
         state,
-        response.song_id,
-        &response.point_fields,
-        &response.bonus_fields,
+        response.question_id,
+        &response.answers_ids,
     );
 
     Ok(response)
 }
 
-/// Apply answer validation decisions while the game is paused on a buzz.
-pub async fn validate_answer(
+/// Reveal a hint and broadcast the updated state to clients.
+pub async fn reveal_hint(
     state: &SharedState,
-    request: AnswerValidationRequest,
+    request: QuestionHintRequest,
+) -> Result<QuestionHintsResponse, ServiceError> {
+    let phase = state.state_machine_phase().await;
+    let running_phase = ensure_running_phase(phase)?;
+    if matches!(running_phase, GameRunningPhase::Prep(_)) {
+        return Err(ServiceError::InvalidState(
+            "cannot reveal hints during preparation".into(),
+        ));
+    }
+
+    let QuestionHintRequest {
+        question_id,
+        hint_id,
+    } = request;
+
+    let response = state
+        .with_current_game_mut(|game| {
+            let question = current_question(game, question_id)?;
+
+            if !question.has_hint(hint_id) {
+                return Err(ServiceError::InvalidInput(format!(
+                    "hint `{hint_id}` does not exist for this question"
+                )));
+            }
+
+            if !game.revealed_hint_ids.contains(&hint_id) {
+                match question {
+                    crate::state::game::Question::BlindTest { .. }
+                        if game.found_answer_ids.contains(&hint_id) =>
+                    {
+                        return Err(ServiceError::InvalidState(
+                            "cannot reveal a hint that corresponds to a found answer".into(),
+                        ));
+                    }
+                    _ => game.revealed_hint_ids.push(hint_id),
+                }
+            }
+
+            Ok(QuestionHintsResponse {
+                question_id,
+                hints_ids: game.revealed_hint_ids.clone(),
+            })
+        })
+        .await?;
+
+    state.persist_current_game_without_teams().await?;
+
+    sse_events::broadcast_question_hints(state, response.question_id, &response.hints_ids);
+
+    Ok(response)
+}
+
+/// Apply answer validation decisions while the game is paused on a buzz.
+pub async fn submit_question_validation(
+    state: &SharedState,
+    request: QuestionValidationRequest,
 ) -> Result<ActionResponse, ServiceError> {
     match state.state_machine_phase().await {
         GamePhase::GameRunning(GameRunningPhase::Paused(_)) => {
-            sse_events::broadcast_answer_validation(state, request.valid);
+            state
+                .with_current_game(|game| {
+                    current_question(game, request.question_id)?;
+                    Ok(())
+                })
+                .await?;
+            sse_events::broadcast_answer_validation(state, request.question_id, request.valid);
             Ok(ActionResponse {
                 message: "answered".into(),
             })
@@ -881,13 +986,259 @@ pub async fn abort_pairing(state: &SharedState) -> Result<Vec<TeamSummary>, Serv
     Ok(teams)
 }
 
-/// Validate that the requested field is part of the song definition.
-fn ensure_field_exists(fields: &[PointField], field_key: &str) -> Result<(), ServiceError> {
-    if fields.iter().any(|field| field.key == field_key) {
-        Ok(())
-    } else {
-        Err(ServiceError::InvalidInput(format!(
-            "field `{field_key}` does not exist for this song"
-        )))
+/// Return the current question after validating the client-provided identifier.
+fn current_question(
+    game: &GameSession,
+    question_id: u32,
+) -> Result<&crate::state::game::Question, ServiceError> {
+    let index = game
+        .current_question_index
+        .ok_or_else(|| ServiceError::InvalidState("no active question: sequence is over".into()))?;
+    let expected_question_id = *game
+        .question_order
+        .get(index)
+        .ok_or_else(|| ServiceError::InvalidState("question index out of bounds".into()))?;
+    if expected_question_id != question_id {
+        return Err(ServiceError::InvalidInput(
+            "question id does not match the current question".into(),
+        ));
+    }
+
+    game.questions_sequence
+        .questions
+        .get(&question_id)
+        .ok_or_else(|| ServiceError::InvalidState("question not found".into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        dao::{
+            game_store::GameStore,
+            models::{GameEntity, GameListItemEntity, QuestionsSequenceEntity, TeamEntity},
+            storage::StorageResult,
+        },
+        dto::admin::QuestionValidation,
+        state::{
+            AppState,
+            game::{BlindTestAnswer, BlindTestQuestion, Question, QuestionsSequence},
+            state_machine::PauseKind,
+        },
+    };
+    use futures::future::BoxFuture;
+    use indexmap::IndexMap;
+    use std::{collections::HashMap, sync::Arc};
+
+    #[derive(Clone)]
+    struct NoopStore;
+
+    impl GameStore for NoopStore {
+        fn save_game(&self, _game: GameEntity) -> BoxFuture<'static, StorageResult<()>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn save_game_without_teams(
+            &self,
+            _game: GameEntity,
+        ) -> BoxFuture<'static, StorageResult<()>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn save_questions_sequence(
+            &self,
+            _sequence: QuestionsSequenceEntity,
+        ) -> BoxFuture<'static, StorageResult<()>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn find_game(&self, _id: Uuid) -> BoxFuture<'static, StorageResult<Option<GameEntity>>> {
+            Box::pin(async { Ok(None) })
+        }
+
+        fn find_questions_sequence(
+            &self,
+            _id: Uuid,
+        ) -> BoxFuture<'static, StorageResult<Option<QuestionsSequenceEntity>>> {
+            Box::pin(async { Ok(None) })
+        }
+
+        fn list_games(&self) -> BoxFuture<'static, StorageResult<Vec<GameListItemEntity>>> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+
+        fn list_questions_sequences(
+            &self,
+        ) -> BoxFuture<'static, StorageResult<Vec<(Uuid, String)>>> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+
+        fn delete_game(&self, _id: Uuid) -> BoxFuture<'static, StorageResult<bool>> {
+            Box::pin(async { Ok(false) })
+        }
+
+        fn save_team(
+            &self,
+            _game_id: Uuid,
+            _team: TeamEntity,
+        ) -> BoxFuture<'static, StorageResult<()>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn delete_team(
+            &self,
+            _game_id: Uuid,
+            _team_id: Uuid,
+        ) -> BoxFuture<'static, StorageResult<()>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn health_check(&self) -> BoxFuture<'static, StorageResult<()>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn try_reconnect(&self) -> BoxFuture<'static, StorageResult<()>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    async fn running_state() -> SharedState {
+        let state = AppState::new();
+        state.set_game_store(Arc::new(NoopStore)).await;
+
+        let mut answers = HashMap::new();
+        answers.insert(
+            0,
+            BlindTestAnswer {
+                key: "title".to_string(),
+                value: "Song title".to_string(),
+                points: 2,
+                is_bonus: false,
+            },
+        );
+
+        let mut questions = IndexMap::new();
+        questions.insert(
+            0,
+            Question::BlindTest(BlindTestQuestion {
+                starts_at_ms: 0,
+                guess_duration_ms: 10_000,
+                url: "https://example.com/song.mp3".to_string(),
+                answers,
+            }),
+        );
+
+        let sequence = QuestionsSequence::new("Quiz".to_string(), questions);
+        let game = GameSession::new("Game".to_string(), IndexMap::new(), sequence, false);
+        state
+            .with_current_game_slot_mut(|slot| {
+                *slot = Some(game);
+            })
+            .await;
+
+        state
+            .run_transition(GameEvent::StartGame, || async { Ok(()) })
+            .await
+            .unwrap();
+        state
+            .run_transition(GameEvent::GameConfigured, || async { Ok(()) })
+            .await
+            .unwrap();
+
+        state
+    }
+
+    #[tokio::test]
+    async fn marks_answer_found_for_current_question() {
+        let state = running_state().await;
+
+        let response = mark_answer_found(
+            &state,
+            AnswerFoundRequest {
+                question_id: 0,
+                answer_id: 0,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response.answers_ids, vec![0]);
+        let answers = state
+            .read_current_game(|game| game.unwrap().found_answer_ids.clone())
+            .await;
+        assert_eq!(answers, vec![0]);
+    }
+
+    #[tokio::test]
+    async fn reveals_blindtest_answer_as_hint() {
+        let state = running_state().await;
+
+        let response = reveal_hint(
+            &state,
+            QuestionHintRequest {
+                question_id: 0,
+                hint_id: 0,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response.hints_ids, vec![0]);
+        let progress = state
+            .read_current_game(|game| {
+                let game = game.unwrap();
+                (
+                    game.found_answer_ids.clone(),
+                    game.revealed_hint_ids.clone(),
+                )
+            })
+            .await;
+        assert_eq!(progress, (Vec::new(), vec![0]));
+    }
+
+    #[tokio::test]
+    async fn rejects_unknown_answer_and_hint_ids() {
+        let state = running_state().await;
+
+        let answer_err = mark_answer_found(
+            &state,
+            AnswerFoundRequest {
+                question_id: 0,
+                answer_id: 42,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(answer_err.to_string().contains("does not exist"));
+
+        let hint_err = reveal_hint(
+            &state,
+            QuestionHintRequest {
+                question_id: 0,
+                hint_id: 42,
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(hint_err.to_string().contains("does not exist"));
+    }
+
+    #[tokio::test]
+    async fn submits_question_validation_for_current_question_while_paused() {
+        let state = running_state().await;
+        state
+            .run_transition(GameEvent::Pause(PauseKind::Manual), || async { Ok(()) })
+            .await
+            .unwrap();
+
+        submit_question_validation(
+            &state,
+            QuestionValidationRequest {
+                question_id: 0,
+                valid: QuestionValidation::Correct,
+            },
+        )
+        .await
+        .unwrap();
     }
 }

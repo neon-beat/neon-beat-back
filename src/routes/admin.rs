@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use axum::{
     Json, Router,
     body::Body,
@@ -13,19 +15,26 @@ use uuid::Uuid;
 use crate::{
     dto::{
         admin::{
-            ActionResponse, AnswerValidationRequest, CreateGameQuery, CreateGameRequest,
-            CreateTeamRequest, FieldsFoundResponse, GameListItem, LoadGameQuery, MarkFieldRequest,
-            NextSongResponse, NoQuery, PlaylistListItem, ScoreAdjustmentRequest,
+            ActionResponse, AnswerFoundRequest, AnswersFoundResponse, CreateGameQuery,
+            CreateGameRequest, CreateTeamRequest, GameListItem, LoadGameQuery,
+            NextQuestionResponse, NoQuery, QuestionHintRequest, QuestionHintsResponse,
+            QuestionValidationRequest, QuestionsSequenceListItem, ScoreAdjustmentRequest,
             ScoreUpdateResponse, StartGameResponse, StartPairingRequest, StopGameResponse,
             UpdateTeamRequest,
         },
         game::{
-            CreateGameWithPlaylistRequest, GameSummary, PlaylistInput, PlaylistSummary, TeamSummary,
+            CreateGameWithQuestionsSequenceRequest, GameSummary, QuestionsSequenceInput,
+            QuestionsSequenceSummary, TeamSummary,
         },
     },
     error::AppError,
     services::admin_service,
     state::SharedState,
+};
+
+use crate::dto::{
+    admin::LegacyPlaylistListItem,
+    game::{LegacyCreateGameWithPlaylistRequest, LegacyPlaylistInput},
 };
 
 const ADMIN_TOKEN_HEADER: &str = "x-admin-token";
@@ -35,24 +44,36 @@ pub fn router(state: SharedState) -> Router<SharedState> {
     Router::new()
         .route("/admin/games", get(list_games).post(create_game))
         .route(
+            "/admin/games/with-questions-sequence",
+            post(create_game_with_questions_sequence),
+        )
+        .route(
             "/admin/games/with-playlist",
             post(create_game_with_playlist),
         )
         .route("/admin/games/{id}", get(get_game_by_id).delete(delete_game))
         .route("/admin/games/{id}/load", post(load_game))
         .route(
+            "/admin/questions-sequence",
+            get(list_questions_sequences).post(create_questions_sequence),
+        )
+        .route(
             "/admin/playlists",
-            get(list_playlists).post(create_playlist),
+            get(list_playlists).post(create_deprecated_playlist),
         )
         .route("/admin/game/start", post(start_game))
         .route("/admin/game/pause", post(pause_game))
         .route("/admin/game/resume", post(resume_game))
-        .route("/admin/game/reveal", post(reveal_song))
-        .route("/admin/game/next", post(next_song))
+        .route("/admin/game/reveal", post(reveal_question))
+        .route("/admin/game/next", post(next_question))
         .route("/admin/game/stop", post(stop_game))
         .route("/admin/game/end", post(end_game))
-        .route("/admin/game/fields/found", post(mark_field_found))
-        .route("/admin/game/answer", post(validate_answer))
+        .route("/admin/game/question/answer-found", post(mark_answer_found))
+        .route(
+            "/admin/game/question/submit-validation",
+            post(submit_question_validation),
+        )
+        .route("/admin/game/question/hint", post(reveal_hint))
         .route("/admin/teams/{id}/score", post(adjust_score))
         .route("/admin/teams", post(create_team))
         .route("/admin/teams/{id}", put(update_team).delete(delete_team))
@@ -111,36 +132,79 @@ pub async fn delete_game(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Retrieve playlists eligible for generating new games.
+/// Retrieve questions sequences eligible for generating new games.
+#[utoipa::path(
+    get,
+    path = "/admin/questions-sequence",
+    tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
+    responses((status = 200, description = "List available questions sequences", body = [QuestionsSequenceListItem]))
+)]
+pub async fn list_questions_sequences(
+    State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
+) -> Result<Json<Vec<QuestionsSequenceListItem>>, AppError> {
+    Ok(Json(admin_service::list_questions_sequences(&state).await?))
+}
+
+/// Deprecated alias for retrieving questions sequences as legacy playlists.
 #[utoipa::path(
     get,
     path = "/admin/playlists",
     tag = "admin",
+    summary = "Deprecated: list legacy playlists",
+    description = "Deprecated since 0.9.0. Use GET /admin/questions-sequence instead.",
     params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
-    responses((status = 200, description = "List available playlists", body = [PlaylistListItem]))
+    responses((status = 200, description = "List available legacy playlists", body = [LegacyPlaylistListItem]))
 )]
+#[deprecated(since = "0.9.0", note = "Use GET /admin/questions-sequence instead.")]
 pub async fn list_playlists(
     State(state): State<SharedState>,
     Query(_no_query): Query<NoQuery>,
-) -> Result<Json<Vec<PlaylistListItem>>, AppError> {
-    Ok(Json(admin_service::list_playlists(&state).await?))
+) -> Result<Json<Vec<LegacyPlaylistListItem>>, AppError> {
+    Ok(Json(admin_service::list_legacy_playlists(&state).await?))
 }
 
-/// Create a reusable playlist definition for later use in games.
+/// Create a reusable questions sequence definition for later use in games.
+#[utoipa::path(
+    post,
+    path = "/admin/questions-sequence",
+    tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
+    request_body = QuestionsSequenceInput,
+    responses((status = 200, description = "Questions sequence created", body = QuestionsSequenceSummary))
+)]
+pub async fn create_questions_sequence(
+    State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
+    Valid(Json(payload)): Valid<Json<QuestionsSequenceInput>>,
+) -> Result<Json<QuestionsSequenceSummary>, AppError> {
+    Ok(Json(
+        admin_service::create_questions_sequence(&state, payload).await?,
+    ))
+}
+
+/// Deprecated alias for creating a sequence from a legacy playlist payload.
 #[utoipa::path(
     post,
     path = "/admin/playlists",
     tag = "admin",
+    summary = "Deprecated: create a questions sequence from a legacy playlist",
+    description = "Deprecated since 0.9.0. Use POST /admin/questions-sequence instead.",
     params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
-    request_body = PlaylistInput,
-    responses((status = 200, description = "Playlist created", body = PlaylistSummary))
+    request_body = LegacyPlaylistInput,
+    responses((status = 200, description = "Questions sequence created", body = QuestionsSequenceSummary))
 )]
-pub async fn create_playlist(
+#[deprecated(since = "0.9.0", note = "Use POST /admin/questions-sequence instead.")]
+pub async fn create_deprecated_playlist(
     State(state): State<SharedState>,
     Query(_no_query): Query<NoQuery>,
-    Valid(Json(payload)): Valid<Json<PlaylistInput>>,
-) -> Result<Json<PlaylistSummary>, AppError> {
-    Ok(Json(admin_service::create_playlist(&state, payload).await?))
+    Valid(Json(payload)): Valid<Json<LegacyPlaylistInput>>,
+) -> Result<Json<QuestionsSequenceSummary>, AppError> {
+    let payload = payload.into();
+    Ok(Json(
+        admin_service::create_questions_sequence(&state, payload).await?,
+    ))
 }
 
 /// Load and activate a stored game for continued play.
@@ -150,7 +214,7 @@ pub async fn create_playlist(
     tag = "admin",
     params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream"),
     ("id" = String, Path, description = "Identifier of the game to load"),
-    ("shuffle" = Option<bool>, Query, description = "Shuffle playlist (default false) ; only applies when loading a game that has not yet started or whose playlist is completely played")),
+    ("shuffle" = Option<bool>, Query, description = "Shuffle questions (default false) ; only applies when loading a game that has not yet started or whose sequence is completely played")),
     responses((status = 200, description = "Game loaded", body = GameSummary))
 )]
 pub async fn load_game(
@@ -166,43 +230,71 @@ pub async fn load_game(
 /// Create a bespoke game definition under admin control.
 #[utoipa::path(
     post,
-    path = "/admin/games/with-playlist",
+    path = "/admin/games/with-questions-sequence",
     tag = "admin",
     params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream"),
-    ("shuffle" = Option<bool>, Query, description = "Shuffle playlist (default false)")),
-    request_body = CreateGameWithPlaylistRequest,
+    ("shuffle" = Option<bool>, Query, description = "Shuffle questions (default false)")),
+    request_body = CreateGameWithQuestionsSequenceRequest,
     responses((status = 200, description = "Game created", body = GameSummary))
 )]
-pub async fn create_game_with_playlist(
+pub async fn create_game_with_questions_sequence(
     State(state): State<SharedState>,
     Query(options): Query<CreateGameQuery>,
-    Valid(Json(payload)): Valid<Json<CreateGameWithPlaylistRequest>>,
+    Valid(Json(payload)): Valid<Json<CreateGameWithQuestionsSequenceRequest>>,
 ) -> Result<Json<GameSummary>, AppError> {
     Ok(Json(
         admin_service::create_game(&state, payload, options.shuffle).await?,
     ))
 }
 
-/// Generate a game using an existing playlist as the source material.
+/// Deprecated alias for creating a game with an inline legacy playlist.
+#[utoipa::path(
+    post,
+    path = "/admin/games/with-playlist",
+    tag = "admin",
+    summary = "Deprecated: create a game with a legacy playlist",
+    description = "Deprecated since 0.9.0. Use POST /admin/games/with-questions-sequence instead.",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream"),
+    ("shuffle" = Option<bool>, Query, description = "Shuffle questions (default false)")),
+    request_body = LegacyCreateGameWithPlaylistRequest,
+    responses((status = 200, description = "Game created", body = GameSummary))
+)]
+#[deprecated(
+    since = "0.9.0",
+    note = "Use POST /admin/games/with-questions-sequence instead."
+)]
+pub async fn create_game_with_playlist(
+    State(state): State<SharedState>,
+    Query(options): Query<CreateGameQuery>,
+    Valid(Json(payload)): Valid<Json<LegacyCreateGameWithPlaylistRequest>>,
+) -> Result<Json<GameSummary>, AppError> {
+    let payload = payload.into();
+    Ok(Json(
+        admin_service::create_game(&state, payload, options.shuffle).await?,
+    ))
+}
+
+/// Generate a game using an existing questions sequence as the source material.
 #[utoipa::path(
     post,
     path = "/admin/games",
     tag = "admin",
     params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream"),
-    ("shuffle" = Option<bool>, Query, description = "Shuffle playlist (default false)")),
+    ("shuffle" = Option<bool>, Query, description = "Shuffle questions (default false)")),
     request_body = CreateGameRequest,
-    responses((status = 200, description = "Game created from playlist", body = GameSummary))
+    responses((status = 200, description = "Game created from questions sequence", body = GameSummary))
 )]
 pub async fn create_game(
     State(state): State<SharedState>,
     Query(options): Query<CreateGameQuery>,
     Valid(Json(payload)): Valid<Json<CreateGameRequest>>,
 ) -> Result<Json<GameSummary>, AppError> {
-    let game = admin_service::create_game_from_playlist(&state, payload, options.shuffle).await?;
+    let game = admin_service::create_game_from_questions_sequence(&state, payload, options.shuffle)
+        .await?;
     Ok(Json(game))
 }
 
-/// Begin a game session and publish the first song to admins.
+/// Begin a game session and publish the first question to admins.
 #[utoipa::path(
     post,
     path = "/admin/game/start",
@@ -247,34 +339,34 @@ pub async fn resume_game(
     Ok(Json(admin_service::resume_game(&state).await?))
 }
 
-/// Explicitly reveal the current song's answer to participants.
+/// Explicitly reveal the current question's answer to participants.
 #[utoipa::path(
     post,
     path = "/admin/game/reveal",
     tag = "admin",
     params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
-    responses((status = 200, description = "Song revealed", body = ActionResponse))
+    responses((status = 200, description = "Question revealed", body = ActionResponse))
 )]
-pub async fn reveal_song(
+pub async fn reveal_question(
     State(state): State<SharedState>,
     Query(_no_query): Query<NoQuery>,
 ) -> Result<Json<ActionResponse>, AppError> {
     Ok(Json(admin_service::reveal(&state).await?))
 }
 
-/// Advance to the next song in the running game.
+/// Advance to the next question in the running game.
 #[utoipa::path(
     post,
     path = "/admin/game/next",
     tag = "admin",
     params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
-    responses((status = 200, description = "Advanced to next song", body = NextSongResponse))
+    responses((status = 200, description = "Advanced to next question", body = NextQuestionResponse))
 )]
-pub async fn next_song(
+pub async fn next_question(
     State(state): State<SharedState>,
     Query(_no_query): Query<NoQuery>,
-) -> Result<Json<NextSongResponse>, AppError> {
-    Ok(Json(admin_service::next_song(&state).await?))
+) -> Result<Json<NextQuestionResponse>, AppError> {
+    Ok(Json(admin_service::next_question(&state).await?))
 }
 
 /// Stop the game early and return final team standings.
@@ -307,39 +399,59 @@ pub async fn end_game(
     Ok(Json(admin_service::end_game(&state).await?))
 }
 
-/// Flag a point or bonus field as discovered for the current song.
+/// Flag an answer as discovered for the current question.
 #[utoipa::path(
     post,
-    path = "/admin/game/fields/found",
+    path = "/admin/game/question/answer-found",
     tag = "admin",
     params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
-    request_body = MarkFieldRequest,
-    responses((status = 200, description = "Updated discovered fields", body = FieldsFoundResponse))
+    request_body = AnswerFoundRequest,
+    responses((status = 200, description = "Updated discovered answers", body = AnswersFoundResponse))
 )]
-pub async fn mark_field_found(
+pub async fn mark_answer_found(
     State(state): State<SharedState>,
     Query(_no_query): Query<NoQuery>,
-    Json(payload): Json<MarkFieldRequest>,
-) -> Result<Json<FieldsFoundResponse>, AppError> {
-    let found_fields = admin_service::mark_field_found(&state, payload).await?;
-    Ok(Json(found_fields))
+    Json(payload): Json<AnswerFoundRequest>,
+) -> Result<Json<AnswersFoundResponse>, AppError> {
+    let found_answers = admin_service::mark_answer_found(&state, payload).await?;
+    Ok(Json(found_answers))
 }
 
-/// Validate or reject the currently submitted answer.
+/// Reveal a hint for the current question.
 #[utoipa::path(
     post,
-    path = "/admin/game/answer",
+    path = "/admin/game/question/hint",
     tag = "admin",
     params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
-    request_body = AnswerValidationRequest,
-    responses((status = 200, description = "Answer validation applied", body = ActionResponse))
+    request_body = QuestionHintRequest,
+    responses((status = 200, description = "Updated revealed hints", body = QuestionHintsResponse))
 )]
-pub async fn validate_answer(
+pub async fn reveal_hint(
     State(state): State<SharedState>,
     Query(_no_query): Query<NoQuery>,
-    Json(payload): Json<AnswerValidationRequest>,
+    Json(payload): Json<QuestionHintRequest>,
+) -> Result<Json<QuestionHintsResponse>, AppError> {
+    let hints = admin_service::reveal_hint(&state, payload).await?;
+    Ok(Json(hints))
+}
+
+/// Submit an admin validation decision for the currently submitted answer.
+#[utoipa::path(
+    post,
+    path = "/admin/game/question/submit-validation",
+    tag = "admin",
+    params(("X-Admin-Token" = String, Header, description = "Admin token issued by the /sse/admin stream")),
+    request_body = QuestionValidationRequest,
+    responses((status = 200, description = "Answer validation applied", body = ActionResponse))
+)]
+pub async fn submit_question_validation(
+    State(state): State<SharedState>,
+    Query(_no_query): Query<NoQuery>,
+    Json(payload): Json<QuestionValidationRequest>,
 ) -> Result<Json<ActionResponse>, AppError> {
-    Ok(Json(admin_service::validate_answer(&state, payload).await?))
+    Ok(Json(
+        admin_service::submit_question_validation(&state, payload).await?,
+    ))
 }
 
 /// Adjust the score for a specific team by team ID.

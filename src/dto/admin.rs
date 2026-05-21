@@ -1,4 +1,5 @@
 //! DTO definitions used by the admin REST API and documentation layer.
+#![allow(deprecated)]
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -7,10 +8,10 @@ use uuid::Uuid;
 use validator::{Validate, ValidationErrors};
 
 use crate::{
-    dao::models::{GameListItemEntity, PlaylistEntity},
+    dao::models::{GameListItemEntity, QuestionsSequenceEntity},
     dto::{
         format_system_time,
-        game::{SongSummary, TeamBriefSummary, TeamInput, TeamSummary},
+        game::{QuestionSummary, TeamBriefSummary, TeamInput, TeamSummary},
     },
 };
 
@@ -27,20 +28,42 @@ pub struct GameListItem {
     pub updated_at: String,
     /// Brief summaries of teams in the game.
     pub teams: Vec<TeamBriefSummary>,
-    /// Minimal playlist information.
-    pub playlist: PlaylistListItem,
+    /// Minimal questions sequence information.
+    pub questions_sequence: QuestionsSequenceListItem,
 }
 
-/// Minimal projection of a playlist available for game creation.
+/// Minimal projection of a questions sequence available for game creation.
 #[derive(Debug, Serialize, ToSchema)]
-pub struct PlaylistListItem {
-    /// Unique identifier for the playlist.
+pub struct QuestionsSequenceListItem {
+    /// Unique identifier for the questions sequence.
     pub id: Uuid,
+    /// Display name of the questions sequence.
+    pub name: String,
+}
+
+/// Deprecated playlist projection returned by legacy playlist routes.
+#[deprecated(
+    since = "0.9.0",
+    note = "Deprecated legacy playlist compatibility. Use QuestionsSequenceListItem and /admin/questions-sequence instead."
+)]
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LegacyPlaylistListItem {
+    /// Unique identifier for the playlist.
+    pub id: String,
     /// Display name of the playlist.
     pub name: String,
 }
 
-/// Payload describing how to spin up a game from an existing playlist definition.
+impl From<QuestionsSequenceListItem> for LegacyPlaylistListItem {
+    fn from(value: QuestionsSequenceListItem) -> Self {
+        Self {
+            id: value.id.to_string(),
+            name: value.name,
+        }
+    }
+}
+
+/// Payload describing how to spin up a game from an existing questions sequence.
 #[derive(Debug, Deserialize, ToSchema, Validate)]
 pub struct CreateGameRequest {
     /// Display name for the new game.
@@ -48,15 +71,15 @@ pub struct CreateGameRequest {
     /// List of teams participating in the game.
     #[validate(nested)]
     pub teams: Vec<TeamInput>,
-    /// ID of the playlist to use for this game.
-    pub playlist_id: Uuid,
+    /// ID of the questions sequence to use for this game.
+    pub questions_sequence_id: Uuid,
 }
 
 /// Query parameters for game creation.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateGameQuery {
-    /// Whether to shuffle the playlist order.
+    /// Whether to shuffle the question order.
     #[serde(default)]
     pub shuffle: bool,
 }
@@ -65,7 +88,7 @@ pub struct CreateGameQuery {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LoadGameQuery {
-    /// Whether to shuffle the playlist order.
+    /// Whether to shuffle the question order.
     #[serde(default)]
     pub shuffle: bool,
 }
@@ -90,42 +113,46 @@ pub struct LoadGameQuery {
 #[serde(deny_unknown_fields)]
 pub struct NoQuery {}
 
-/// Classifies the type of field discovered during gameplay.
+/// Request to mark an answer as found.
 #[derive(Debug, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum FieldKind {
-    /// A regular point field.
-    Point,
-    /// A bonus field.
-    Bonus,
+pub struct AnswerFoundRequest {
+    /// ID of the question containing the answer.
+    pub question_id: u32,
+    /// ID identifying the answer within the question.
+    pub answer_id: u8,
 }
 
-/// Request to mark a point or bonus field as revealed.
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct MarkFieldRequest {
-    /// ID of the song containing the field.
-    pub song_id: u32,
-    /// Key identifying the field within the song.
-    pub field_key: String,
-    /// Type of field being marked.
-    pub kind: FieldKind,
-}
-
-/// Response summarising the fields uncovered for the current song.
+/// Response summarising the answers found for the current question.
 #[derive(Debug, Serialize, ToSchema)]
-pub struct FieldsFoundResponse {
-    /// ID of the current song.
-    pub song_id: u32,
-    /// List of point field keys that have been found.
-    pub point_fields: Vec<String>,
-    /// List of bonus field keys that have been found.
-    pub bonus_fields: Vec<String>,
+pub struct AnswersFoundResponse {
+    /// ID of the current question.
+    pub question_id: u32,
+    /// List of answer IDs that have been found.
+    pub answers_ids: Vec<u8>,
 }
 
-/// Tri-state result of an answer validation.
+/// Request to reveal a hint for a question.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct QuestionHintRequest {
+    /// ID of the question containing the hint.
+    pub question_id: u32,
+    /// ID identifying the hint within the question.
+    pub hint_id: u8,
+}
+
+/// Response summarising the hints revealed for the current question.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct QuestionHintsResponse {
+    /// ID of the current question.
+    pub question_id: u32,
+    /// List of hint IDs that have been revealed.
+    pub hints_ids: Vec<u8>,
+}
+
+/// Tri-state result of a question validation.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum AnswerValidation {
+pub enum QuestionValidation {
     /// Answer is completely correct.
     Correct,
     /// Answer is partially correct but incomplete.
@@ -134,11 +161,13 @@ pub enum AnswerValidation {
     Wrong,
 }
 
-/// Request to validate the current answer submission using a tri-state result.
+/// Request to submit the current question validation using a tri-state result.
 #[derive(Debug, Deserialize, ToSchema)]
-pub struct AnswerValidationRequest {
-    /// Validation result for the answer.
-    pub valid: AnswerValidation,
+pub struct QuestionValidationRequest {
+    /// ID of the question being validated.
+    pub question_id: u32,
+    /// Validation result for the question answer submission.
+    pub valid: QuestionValidation,
 }
 
 /// Request to adjust a team's score by a delta.
@@ -193,21 +222,21 @@ pub struct StartPairingRequest {
     pub first_team_id: Uuid,
 }
 
-/// Response emitted when a game starts, including the initial song details.
+/// Response emitted when a game starts, including the initial question details.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct StartGameResponse {
-    /// Summary of the first song in the game.
-    pub song: SongSummary,
+    /// Summary of the first question in the game.
+    pub question: QuestionSummary,
 }
 
-/// Response describing the state of the playlist after moving to the next song.
+/// Response describing the state of the sequence after moving to the next question.
 #[derive(Debug, Serialize, ToSchema)]
-pub struct NextSongResponse {
-    /// Whether the playlist has been completed.
+pub struct NextQuestionResponse {
+    /// Whether the sequence has been completed.
     pub finished: bool,
-    /// Summary of the next song, if any.
+    /// Summary of the next question, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub song: Option<SongSummary>,
+    pub question: Option<QuestionSummary>,
 }
 
 /// Response returned when a game is stopped, gathering final team scores.
@@ -220,12 +249,12 @@ pub struct StopGameResponse {
 /// Errors that can occur when converting storage entities into API DTOs.
 #[derive(Debug, Error)]
 pub enum ConversionError {
-    /// Playlist ID in game entity does not match the provided playlist.
-    #[error("playlist id mismatch: expected {expected}, found {found}")]
-    MismatchedPlaylistId {
-        /// Expected playlist ID from the game.
+    /// Questions sequence ID in game entity does not match the provided sequence.
+    #[error("questions sequence id mismatch: expected {expected}, found {found}")]
+    MismatchedQuestionsSequenceId {
+        /// Expected questions sequence ID from the game.
         expected: Uuid,
-        /// Actual playlist ID found.
+        /// Actual questions sequence ID found.
         found: Uuid,
     },
 }
@@ -236,16 +265,16 @@ impl From<ConversionError> for crate::error::ServiceError {
     }
 }
 
-impl TryFrom<(GameListItemEntity, PlaylistEntity)> for GameListItem {
+impl TryFrom<(GameListItemEntity, QuestionsSequenceEntity)> for GameListItem {
     type Error = ConversionError;
 
     fn try_from(
-        (game_list_item, playlist): (GameListItemEntity, PlaylistEntity),
+        (game_list_item, questions_sequence): (GameListItemEntity, QuestionsSequenceEntity),
     ) -> Result<Self, Self::Error> {
-        if playlist.id != game_list_item.playlist_id {
-            Err(ConversionError::MismatchedPlaylistId {
-                expected: game_list_item.playlist_id,
-                found: playlist.id,
+        if questions_sequence.id != game_list_item.questions_sequence_id {
+            Err(ConversionError::MismatchedQuestionsSequenceId {
+                expected: game_list_item.questions_sequence_id,
+                found: questions_sequence.id,
             })
         } else {
             Ok(Self {
@@ -254,9 +283,9 @@ impl TryFrom<(GameListItemEntity, PlaylistEntity)> for GameListItem {
                 created_at: format_system_time(game_list_item.created_at),
                 updated_at: format_system_time(game_list_item.updated_at),
                 teams: game_list_item.teams.into_iter().map(Into::into).collect(),
-                playlist: PlaylistListItem {
-                    id: playlist.id,
-                    name: playlist.name,
+                questions_sequence: QuestionsSequenceListItem {
+                    id: questions_sequence.id,
+                    name: questions_sequence.name,
                 },
             })
         }

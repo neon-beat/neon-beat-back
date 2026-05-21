@@ -2,7 +2,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::dto::{admin::AnswerValidation, common::GamePhaseSnapshot, game::TeamSummary};
+use crate::dto::{admin::QuestionValidation, common::GamePhaseSnapshot, game::TeamSummary};
 
 /// Dispatched payload carried across SSE channels.
 #[derive(Clone, Debug)]
@@ -48,22 +48,31 @@ pub struct SystemStatus {
     pub degraded: bool,
 }
 
-/// Broadcast when point or bonus fields have been marked as found.
+/// Broadcast when answers have been marked as found.
 #[derive(Debug, Serialize, ToSchema)]
-pub struct FieldsFoundEvent {
-    /// ID of the song containing the fields.
-    pub song_id: u32,
-    /// Keys of point fields that have been found.
-    pub point_fields: Vec<String>,
-    /// Keys of bonus fields that have been found.
-    pub bonus_fields: Vec<String>,
+pub struct QuestionFoundAnswersEvent {
+    /// ID of the question containing the answers.
+    pub question_id: u32,
+    /// IDs of answers that have been found.
+    pub answers_ids: Vec<u8>,
+}
+
+/// Broadcast when question hints have been revealed.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct QuestionHintsEvent {
+    /// ID of the question containing the hints.
+    pub question_id: u32,
+    /// IDs of hints that have been revealed.
+    pub hints_ids: Vec<u8>,
 }
 
 /// Broadcast when an answer has been validated or invalidated.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AnswerValidationEvent {
+    /// ID of the question being validated.
+    pub question_id: u32,
     /// Validation result for the answer.
-    pub valid: AnswerValidation,
+    pub valid: QuestionValidation,
 }
 
 /// Broadcast whenever the gameplay phase changes.

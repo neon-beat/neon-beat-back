@@ -5,27 +5,33 @@ pub mod couchdb;
 #[cfg(feature = "mongo-store")]
 pub mod mongodb;
 
-use crate::dao::models::{GameEntity, GameListItemEntity, PlaylistEntity, TeamEntity};
+use crate::dao::models::{GameEntity, GameListItemEntity, QuestionsSequenceEntity, TeamEntity};
 use crate::dao::storage::StorageResult;
 use futures::future::BoxFuture;
 use uuid::Uuid;
 
-/// Abstraction over the persistence layer for game sessions and playlists.
+/// Abstraction over the persistence layer for game sessions and question sequences.
 pub trait GameStore: Send + Sync {
     /// Save a complete game entity including all team documents.
     fn save_game(&self, game: GameEntity) -> BoxFuture<'static, StorageResult<()>>;
     /// Save only the game document without updating team documents.
     fn save_game_without_teams(&self, game: GameEntity) -> BoxFuture<'static, StorageResult<()>>;
-    /// Save a playlist entity to storage.
-    fn save_playlist(&self, playlist: PlaylistEntity) -> BoxFuture<'static, StorageResult<()>>;
+    /// Save a questions sequence entity to storage.
+    fn save_questions_sequence(
+        &self,
+        sequence: QuestionsSequenceEntity,
+    ) -> BoxFuture<'static, StorageResult<()>>;
     /// Find and retrieve a game entity by ID.
     fn find_game(&self, id: Uuid) -> BoxFuture<'static, StorageResult<Option<GameEntity>>>;
-    /// Find and retrieve a playlist entity by ID.
-    fn find_playlist(&self, id: Uuid) -> BoxFuture<'static, StorageResult<Option<PlaylistEntity>>>;
+    /// Find and retrieve a questions sequence entity by ID.
+    fn find_questions_sequence(
+        &self,
+        id: Uuid,
+    ) -> BoxFuture<'static, StorageResult<Option<QuestionsSequenceEntity>>>;
     /// List all game entities with summary information.
     fn list_games(&self) -> BoxFuture<'static, StorageResult<Vec<GameListItemEntity>>>;
-    /// List all playlists with ID and name pairs.
-    fn list_playlists(&self) -> BoxFuture<'static, StorageResult<Vec<(Uuid, String)>>>;
+    /// List all questions sequences with ID and name pairs.
+    fn list_questions_sequences(&self) -> BoxFuture<'static, StorageResult<Vec<(Uuid, String)>>>;
     /// Delete a game entity and all its associated team documents.
     fn delete_game(&self, id: Uuid) -> BoxFuture<'static, StorageResult<bool>>;
     /// Save a single team document for a game.
