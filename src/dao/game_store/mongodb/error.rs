@@ -41,8 +41,8 @@ pub enum MongoDaoError {
         #[source]
         source: MongoError,
     },
-    #[error("failed to save playlist `{id}`")]
-    SavePlaylist {
+    #[error("failed to save questions sequence `{id}`")]
+    SaveQuestionsSequence {
         id: Uuid,
         #[source]
         source: MongoError,
@@ -59,8 +59,8 @@ pub enum MongoDaoError {
         #[source]
         source: MongoError,
     },
-    #[error("failed to load playlist `{id}`")]
-    LoadPlaylist {
+    #[error("failed to load questions sequence `{id}`")]
+    LoadQuestionsSequence {
         id: Uuid,
         #[source]
         source: MongoError,
@@ -70,8 +70,8 @@ pub enum MongoDaoError {
         #[source]
         source: MongoError,
     },
-    #[error("failed to list playlists")]
-    ListPlaylists {
+    #[error("failed to list questions sequences")]
+    ListQuestionsSequences {
         #[source]
         source: MongoError,
     },

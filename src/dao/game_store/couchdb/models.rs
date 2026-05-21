@@ -6,11 +6,11 @@ use uuid::Uuid;
 
 use crate::dao::{
     game_store::couchdb::error::CouchDaoError,
-    models::{GameEntity, PlaylistEntity, SongEntity, TeamColorEntity, TeamEntity},
+    models::{GameEntity, QuestionEntity, QuestionsSequenceEntity, TeamColorEntity, TeamEntity},
 };
 
 pub const GAME_PREFIX: &str = "game::";
-pub const PLAYLIST_PREFIX: &str = "playlist::";
+pub const QUESTIONS_SEQUENCE_PREFIX: &str = "questions_sequence::";
 pub const TEAM_PREFIX: &str = "team::";
 pub const END_SUFFIX: &str = "\u{ffff}";
 
@@ -42,10 +42,10 @@ pub struct GameBody {
     pub created_at: SystemTime,
     pub updated_at: SystemTime,
     pub team_ids: Vec<Uuid>, // List of team IDs in their display order
-    pub playlist_id: Uuid,
-    pub playlist_song_order: Vec<u32>,
-    pub current_song_index: Option<usize>,
-    pub current_song_found: bool,
+    pub questions_sequence_id: Uuid,
+    pub question_order: Vec<u32>,
+    pub current_question_index: Option<usize>,
+    pub current_question_revealed: bool,
 }
 
 impl From<(GameEntity, Option<String>)> for CouchGameDocument {
@@ -59,10 +59,10 @@ impl From<(GameEntity, Option<String>)> for CouchGameDocument {
                 created_at: game.created_at,
                 updated_at: game.updated_at,
                 team_ids,
-                playlist_id: game.playlist_id,
-                playlist_song_order: game.playlist_song_order,
-                current_song_index: game.current_song_index,
-                current_song_found: game.current_song_found,
+                questions_sequence_id: game.questions_sequence_id,
+                question_order: game.question_order,
+                current_question_index: game.current_question_index,
+                current_question_revealed: game.current_question_revealed,
             },
         }
     }
@@ -130,51 +130,51 @@ impl CouchGameDocument {
             created_at: self.game.created_at,
             updated_at, // Use computed max timestamp
             teams,
-            playlist_id: self.game.playlist_id,
-            playlist_song_order: self.game.playlist_song_order,
-            current_song_index: self.game.current_song_index,
-            current_song_found: self.game.current_song_found,
+            questions_sequence_id: self.game.questions_sequence_id,
+            question_order: self.game.question_order,
+            current_question_index: self.game.current_question_index,
+            current_question_revealed: self.game.current_question_revealed,
         })
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CouchPlaylistDocument {
+pub struct CouchQuestionsSequenceDocument {
     #[serde(rename = "_id")]
     pub id: String,
     #[serde(rename = "_rev", skip_serializing_if = "Option::is_none")]
     pub rev: Option<String>,
     #[serde(flatten)]
-    pub playlist: PlaylistBody,
+    pub questions_sequence: QuestionsSequenceBody,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlaylistBody {
+pub struct QuestionsSequenceBody {
     pub name: String,
-    pub songs: Vec<SongEntity>,
+    pub questions: Vec<QuestionEntity>,
 }
 
-impl From<(PlaylistEntity, Option<String>)> for CouchPlaylistDocument {
-    fn from((value, rev): (PlaylistEntity, Option<String>)) -> Self {
+impl From<(QuestionsSequenceEntity, Option<String>)> for CouchQuestionsSequenceDocument {
+    fn from((value, rev): (QuestionsSequenceEntity, Option<String>)) -> Self {
         Self {
-            id: playlist_doc_id(value.id),
+            id: questions_sequence_doc_id(value.id),
             rev,
-            playlist: PlaylistBody {
+            questions_sequence: QuestionsSequenceBody {
                 name: value.name,
-                songs: value.songs,
+                questions: value.questions,
             },
         }
     }
 }
 
-impl TryFrom<CouchPlaylistDocument> for PlaylistEntity {
+impl TryFrom<CouchQuestionsSequenceDocument> for QuestionsSequenceEntity {
     type Error = CouchDaoError;
 
-    fn try_from(doc: CouchPlaylistDocument) -> Result<Self, Self::Error> {
+    fn try_from(doc: CouchQuestionsSequenceDocument) -> Result<Self, Self::Error> {
         Ok(Self {
             id: extract_uuid(&doc.id)?,
-            name: doc.playlist.name,
-            songs: doc.playlist.songs,
+            name: doc.questions_sequence.name,
+            questions: doc.questions_sequence.questions,
         })
     }
 }
@@ -183,8 +183,8 @@ pub fn game_doc_id(id: Uuid) -> String {
     format!("{}{}", GAME_PREFIX, id)
 }
 
-pub fn playlist_doc_id(id: Uuid) -> String {
-    format!("{}{}", PLAYLIST_PREFIX, id)
+pub fn questions_sequence_doc_id(id: Uuid) -> String {
+    format!("{}{}", QUESTIONS_SEQUENCE_PREFIX, id)
 }
 
 pub fn extract_uuid(doc_id: &str) -> Result<Uuid, CouchDaoError> {

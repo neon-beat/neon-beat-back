@@ -31,14 +31,14 @@ pub struct MongoGameDocument {
     /// List of team ids in display order. Individual team details live in the `teams`
     /// collection as `MongoTeamDocument` documents.
     pub teams: Vec<Uuid>,
-    /// Referenced playlist id.
-    playlist_id: Uuid,
-    /// Ordered list of song indices referencing the playlist.
-    playlist_song_order: Vec<u32>,
-    /// Optional index of current song.
-    current_song_index: Option<usize>,
-    /// Whether the current song has been found. Default false.
-    current_song_found: bool,
+    /// Referenced questions sequence id.
+    questions_sequence_id: Uuid,
+    /// Ordered list of question indices referencing the sequence.
+    question_order: Vec<u32>,
+    /// Optional index of current question.
+    current_question_index: Option<usize>,
+    /// Whether the current question has been revealed. Default false.
+    current_question_revealed: bool,
 }
 
 impl From<GameEntity> for MongoGameDocument {
@@ -50,10 +50,10 @@ impl From<GameEntity> for MongoGameDocument {
             created_at: DateTime::from_system_time(game.created_at),
             updated_at: DateTime::from_system_time(game.updated_at),
             teams: team_ids,
-            playlist_id: game.playlist_id,
-            playlist_song_order: game.playlist_song_order,
-            current_song_index: game.current_song_index,
-            current_song_found: game.current_song_found,
+            questions_sequence_id: game.questions_sequence_id,
+            question_order: game.question_order,
+            current_question_index: game.current_question_index,
+            current_question_revealed: game.current_question_revealed,
         }
     }
 }
@@ -68,10 +68,10 @@ impl From<MongoGameDocument> for GameEntity {
             // Teams must be loaded from the `teams` collection; using empty vector here
             // is a placeholder for call sites that should fetch team documents.
             teams: Vec::new(),
-            playlist_id: value.playlist_id,
-            playlist_song_order: value.playlist_song_order,
-            current_song_index: value.current_song_index,
-            current_song_found: value.current_song_found,
+            questions_sequence_id: value.questions_sequence_id,
+            question_order: value.question_order,
+            current_question_index: value.current_question_index,
+            current_question_revealed: value.current_question_revealed,
         }
     }
 }

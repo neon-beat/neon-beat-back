@@ -1,51 +1,136 @@
 use indexmap::IndexMap;
 use rand::{rng, seq::SliceRandom};
-use std::time::SystemTime;
+use std::{collections::HashMap, time::SystemTime};
 use uuid::Uuid;
 
 use crate::{
     dao::models::{
-        GameEntity, PlaylistEntity, PointFieldEntity, SongEntity, TeamColorEntity, TeamEntity,
+        BlindTestAnswerEntity, BlindTestQuestionEntity, GameEntity, HintEntity,
+        MultipleChoiceAnswerEntity, MultipleChoiceQuestionEntity, OpenAnswerEntity,
+        OpenQuestionEntity, QuestionEntity, QuestionsSequenceEntity, TeamColorEntity, TeamEntity,
         TeamSummaryEntity,
     },
     dto::game::TeamBriefSummary,
 };
 
-/// Runtime representation of a playlist with its songs keyed by identifier.
+/// Runtime representation of a questions sequence keyed by question identifier.
 #[derive(Debug, Clone)]
-pub struct Playlist {
-    /// Stable identifier for the playlist.
+pub struct QuestionsSequence {
+    /// Stable identifier for the questions sequence.
     pub id: Uuid,
-    /// Human readable playlist name.
+    /// Human readable sequence name.
     pub name: String,
-    /// Set of songs that make up the game (key is the ID of the song).
-    pub songs: IndexMap<u32, Song>,
+    /// Set of questions that make up the game (key is the ID of the question).
+    pub questions: IndexMap<u32, Question>,
 }
 
-/// Metadata for a song of a playlist.
+/// Question supported by a game sequence.
 #[derive(Debug, Clone)]
-pub struct Song {
-    /// Timestamp (milliseconds) where the song preview should start.
+pub enum Question {
+    /// Music blindtest question.
+    BlindTest(BlindTestQuestion),
+    /// Multiple-choice text question.
+    MultipleChoice(MultipleChoiceQuestion),
+    /// Open text question.
+    Open(OpenQuestion),
+}
+
+/// Metadata for a blindtest question.
+#[derive(Debug, Clone)]
+pub struct BlindTestQuestion {
+    /// Timestamp (milliseconds) where the media preview should start.
     pub starts_at_ms: usize,
-    /// Allowed time (milliseconds) for teams to identify the song.
+    /// Allowed time (milliseconds) for teams to answer.
     pub guess_duration_ms: usize,
     /// URL pointing to the media resource.
     pub url: String,
-    /// Fields required to award the base points (e.g., song title, artist).
-    pub point_fields: Vec<PointField>,
-    /// Optional extra fields that can yield bonus points.
-    pub bonus_fields: Vec<PointField>,
+    /// Answers for this question keyed by auto-assigned answer identifier.
+    pub answers: HashMap<u8, BlindTestAnswer>,
 }
 
-/// Data for a point field associated to a song of a playlist.
+/// Metadata for a multiple-choice question.
 #[derive(Debug, Clone)]
-pub struct PointField {
-    /// The name of the field to found (e.g. "Artist").
+pub struct MultipleChoiceQuestion {
+    /// Allowed time (milliseconds) for teams to answer.
+    pub guess_duration_ms: usize,
+    /// Text prompt displayed to participants.
+    pub prompt: String,
+    /// Optional URL pointing to a supporting resource.
+    pub url: Option<String>,
+    /// Possible answers keyed by auto-assigned answer identifier.
+    pub answers: HashMap<u8, MultipleChoiceAnswer>,
+    /// Hints keyed by auto-assigned hint identifier.
+    pub hints: HashMap<u8, Hint>,
+}
+
+/// Metadata for an open text question.
+#[derive(Debug, Clone)]
+pub struct OpenQuestion {
+    /// Allowed time (milliseconds) for teams to answer.
+    pub guess_duration_ms: usize,
+    /// Text prompt displayed to participants.
+    pub prompt: String,
+    /// Optional URL pointing to a supporting resource.
+    pub url: Option<String>,
+    /// Accepted answers keyed by auto-assigned answer identifier.
+    pub answers: HashMap<u8, OpenAnswer>,
+    /// Hints keyed by auto-assigned hint identifier.
+    pub hints: HashMap<u8, Hint>,
+}
+
+/// Data for an answer associated to a blindtest question.
+#[derive(Debug, Clone)]
+pub struct BlindTestAnswer {
+    /// The name of the field to find (e.g. "Artist").
     pub key: String,
-    /// The value to found for this field (e.g. the actual artist name).
+    /// The value to find for this field (e.g. the actual artist name).
     pub value: String,
-    /// The number of points given if this field is found.
+    /// The number of points awarded if this answer is found.
     pub points: u8,
+    /// Whether this answer is a bonus answer.
+    pub is_bonus: bool,
+}
+
+/// Data for an answer associated to a multiple-choice question.
+#[derive(Debug, Clone)]
+pub struct MultipleChoiceAnswer {
+    /// Answer text.
+    pub text: String,
+    /// Whether this answer is correct.
+    pub is_correct: bool,
+}
+
+/// Data for an answer associated to an open question.
+#[derive(Debug, Clone)]
+pub struct OpenAnswer {
+    /// Accepted answer text.
+    pub text: String,
+}
+
+/// Hint text associated to a question.
+#[derive(Debug, Clone)]
+pub struct Hint(pub String);
+
+impl Question {
+    /// Return true when the question contains the requested answer identifier.
+    pub fn has_answer(&self, answer_id: u8) -> bool {
+        match self {
+            Question::BlindTest(question) => question.answers.contains_key(&answer_id),
+            Question::MultipleChoice(question) => question.answers.contains_key(&answer_id),
+            Question::Open(question) => question.answers.contains_key(&answer_id),
+        }
+    }
+
+    /// Return true when the question contains the requested hint identifier.
+    ///
+    /// Blindtest questions use the answer map as their hint source.
+    pub fn has_hint(&self, hint_id: u8) -> bool {
+        match self {
+            Question::BlindTest(question) => question.answers.contains_key(&hint_id),
+            Question::MultipleChoice(question) => question.hints.contains_key(&hint_id),
+            Question::Open(question) => question.hints.contains_key(&hint_id),
+        }
+    }
 }
 
 /// HSV color assigned to a team.
@@ -97,18 +182,18 @@ pub struct GameSession {
     pub updated_at: SystemTime,
     /// Participating teams and their current scores keyed by team identifier.
     pub teams: IndexMap<Uuid, Team>,
-    /// Playlist selected for this session.
-    pub playlist: Playlist,
-    /// Oredered list of songs IDs from the playlist, defining the playlist order.
-    pub playlist_song_order: Vec<u32>,
-    /// Index of the current song to be found.
-    pub current_song_index: Option<usize>,
-    /// Whether the current song has already been revealed.
-    pub current_song_found: bool,
-    /// Field names (key) already found for the current song.
-    pub found_point_fields: Vec<String>,
-    /// Bonus field names (key) found for the current song.
-    pub found_bonus_fields: Vec<String>,
+    /// Questions sequence selected for this session.
+    pub questions_sequence: QuestionsSequence,
+    /// Ordered list of question IDs from the sequence, defining the game order.
+    pub question_order: Vec<u32>,
+    /// Index of the current question to be played.
+    pub current_question_index: Option<usize>,
+    /// Whether the current question has already been revealed.
+    pub current_question_revealed: bool,
+    /// Answer IDs already found for the current question.
+    pub found_answer_ids: Vec<u8>,
+    /// Hint IDs already revealed for the current question.
+    pub revealed_hint_ids: Vec<u8>,
 }
 
 impl GameSession {
@@ -116,15 +201,15 @@ impl GameSession {
     pub fn new(
         name: String,
         teams: IndexMap<Uuid, Team>,
-        playlist: Playlist,
-        shuffle_playlist: bool,
+        questions_sequence: QuestionsSequence,
+        shuffle_questions: bool,
     ) -> Self {
         let timestamp = SystemTime::now();
 
-        let mut playlist_song_order: Vec<u32> = playlist.songs.keys().cloned().collect();
-        if shuffle_playlist {
+        let mut question_order: Vec<u32> = questions_sequence.questions.keys().cloned().collect();
+        if shuffle_questions {
             let mut rng = rng();
-            playlist_song_order.shuffle(&mut rng);
+            question_order.shuffle(&mut rng);
         }
 
         Self {
@@ -133,22 +218,22 @@ impl GameSession {
             created_at: timestamp,
             updated_at: timestamp,
             teams,
-            playlist,
-            playlist_song_order,
-            current_song_index: Some(0),
-            current_song_found: false,
-            found_point_fields: Vec::new(),
-            found_bonus_fields: Vec::new(),
+            questions_sequence,
+            question_order,
+            current_question_index: Some(0),
+            current_question_revealed: false,
+            found_answer_ids: Vec::new(),
+            revealed_hint_ids: Vec::new(),
         }
     }
 
-    /// Return the song at the requested playlist index together with its identifier.
-    pub fn get_song(&self, index: usize) -> Option<(u32, Song)> {
-        self.playlist_song_order.get(index).and_then(|song_id| {
-            self.playlist
-                .songs
-                .get(song_id)
-                .map(|song| (*song_id, song.clone()))
+    /// Return the question at the requested sequence index together with its identifier.
+    pub fn get_question(&self, index: usize) -> Option<(u32, Question)> {
+        self.question_order.get(index).and_then(|question_id| {
+            self.questions_sequence
+                .questions
+                .get(question_id)
+                .map(|question| (*question_id, question.clone()))
         })
     }
 
@@ -187,83 +272,218 @@ impl GameSession {
     }
 }
 
-impl Playlist {
-    /// Build a new in-memory playlist with the provided metadata, allocating a
+impl QuestionsSequence {
+    /// Build a new in-memory questions sequence with the provided metadata, allocating a
     /// fresh unique identifier for runtime usage.
-    pub fn new(name: String, songs: IndexMap<u32, Song>) -> Self {
+    pub fn new(name: String, questions: IndexMap<u32, Question>) -> Self {
         Self {
             id: Uuid::new_v4(),
             name,
-            songs,
+            questions,
         }
     }
 }
 
-impl From<PointFieldEntity> for PointField {
-    fn from(value: PointFieldEntity) -> Self {
+impl From<BlindTestAnswerEntity> for BlindTestAnswer {
+    fn from(value: BlindTestAnswerEntity) -> Self {
         Self {
             key: value.key,
             value: value.value,
             points: value.points,
+            is_bonus: value.is_bonus,
         }
     }
 }
 
-impl From<PointField> for PointFieldEntity {
-    fn from(value: PointField) -> Self {
+impl From<BlindTestAnswer> for BlindTestAnswerEntity {
+    fn from(value: BlindTestAnswer) -> Self {
         Self {
             key: value.key,
             value: value.value,
             points: value.points,
+            is_bonus: value.is_bonus,
         }
     }
 }
 
-impl From<SongEntity> for Song {
-    fn from(value: SongEntity) -> Self {
+impl From<MultipleChoiceAnswerEntity> for MultipleChoiceAnswer {
+    fn from(value: MultipleChoiceAnswerEntity) -> Self {
+        Self {
+            text: value.text,
+            is_correct: value.is_correct,
+        }
+    }
+}
+
+impl From<MultipleChoiceAnswer> for MultipleChoiceAnswerEntity {
+    fn from(value: MultipleChoiceAnswer) -> Self {
+        Self {
+            text: value.text,
+            is_correct: value.is_correct,
+        }
+    }
+}
+
+impl From<OpenAnswerEntity> for OpenAnswer {
+    fn from(value: OpenAnswerEntity) -> Self {
+        Self { text: value.text }
+    }
+}
+
+impl From<OpenAnswer> for OpenAnswerEntity {
+    fn from(value: OpenAnswer) -> Self {
+        Self { text: value.text }
+    }
+}
+
+impl From<HintEntity> for Hint {
+    fn from(value: HintEntity) -> Self {
+        Self(value.text)
+    }
+}
+
+impl From<Hint> for HintEntity {
+    fn from(value: Hint) -> Self {
+        Self { text: value.0 }
+    }
+}
+
+impl From<BlindTestQuestionEntity> for BlindTestQuestion {
+    fn from(value: BlindTestQuestionEntity) -> Self {
         Self {
             starts_at_ms: value.starts_at_ms,
             guess_duration_ms: value.guess_duration_ms,
             url: value.url,
-            point_fields: value.point_fields.into_iter().map(Into::into).collect(),
-            bonus_fields: value.bonus_fields.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-
-impl From<Song> for SongEntity {
-    fn from(value: Song) -> Self {
-        Self {
-            starts_at_ms: value.starts_at_ms,
-            guess_duration_ms: value.guess_duration_ms,
-            url: value.url,
-            point_fields: value.point_fields.into_iter().map(Into::into).collect(),
-            bonus_fields: value.bonus_fields.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-
-impl From<PlaylistEntity> for Playlist {
-    fn from(value: PlaylistEntity) -> Self {
-        Self {
-            id: value.id,
-            name: value.name,
-            songs: value
-                .songs
+            answers: value
+                .answers
                 .into_iter()
                 .enumerate()
-                .map(|(id, se)| (id as u32, se.into()))
+                .map(|(id, answer)| (id as u8, answer.into()))
                 .collect(),
         }
     }
 }
 
-impl From<Playlist> for PlaylistEntity {
-    fn from(value: Playlist) -> Self {
+impl From<BlindTestQuestion> for BlindTestQuestionEntity {
+    fn from(value: BlindTestQuestion) -> Self {
+        Self {
+            starts_at_ms: value.starts_at_ms,
+            guess_duration_ms: value.guess_duration_ms,
+            url: value.url,
+            answers: value.answers.into_values().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<MultipleChoiceQuestionEntity> for MultipleChoiceQuestion {
+    fn from(value: MultipleChoiceQuestionEntity) -> Self {
+        Self {
+            guess_duration_ms: value.guess_duration_ms,
+            prompt: value.prompt,
+            url: value.url,
+            answers: value
+                .answers
+                .into_iter()
+                .enumerate()
+                .map(|(id, answer)| (id as u8, answer.into()))
+                .collect(),
+            hints: value
+                .hints
+                .into_iter()
+                .enumerate()
+                .map(|(id, hint)| (id as u8, hint.into()))
+                .collect(),
+        }
+    }
+}
+
+impl From<MultipleChoiceQuestion> for MultipleChoiceQuestionEntity {
+    fn from(value: MultipleChoiceQuestion) -> Self {
+        Self {
+            guess_duration_ms: value.guess_duration_ms,
+            prompt: value.prompt,
+            url: value.url,
+            answers: value.answers.into_values().map(Into::into).collect(),
+            hints: value.hints.into_values().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<OpenQuestionEntity> for OpenQuestion {
+    fn from(value: OpenQuestionEntity) -> Self {
+        Self {
+            guess_duration_ms: value.guess_duration_ms,
+            prompt: value.prompt,
+            url: value.url,
+            answers: value
+                .answers
+                .into_iter()
+                .enumerate()
+                .map(|(id, answer)| (id as u8, answer.into()))
+                .collect(),
+            hints: value
+                .hints
+                .into_iter()
+                .enumerate()
+                .map(|(id, hint)| (id as u8, hint.into()))
+                .collect(),
+        }
+    }
+}
+
+impl From<OpenQuestion> for OpenQuestionEntity {
+    fn from(value: OpenQuestion) -> Self {
+        Self {
+            guess_duration_ms: value.guess_duration_ms,
+            prompt: value.prompt,
+            url: value.url,
+            answers: value.answers.into_values().map(Into::into).collect(),
+            hints: value.hints.into_values().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<QuestionEntity> for Question {
+    fn from(value: QuestionEntity) -> Self {
+        match value {
+            QuestionEntity::BlindTest(question) => Question::BlindTest(question.into()),
+            QuestionEntity::MultipleChoice(question) => Question::MultipleChoice(question.into()),
+            QuestionEntity::Open(question) => Question::Open(question.into()),
+        }
+    }
+}
+
+impl From<Question> for QuestionEntity {
+    fn from(value: Question) -> Self {
+        match value {
+            Question::BlindTest(question) => QuestionEntity::BlindTest(question.into()),
+            Question::MultipleChoice(question) => QuestionEntity::MultipleChoice(question.into()),
+            Question::Open(question) => QuestionEntity::Open(question.into()),
+        }
+    }
+}
+
+impl From<QuestionsSequenceEntity> for QuestionsSequence {
+    fn from(value: QuestionsSequenceEntity) -> Self {
         Self {
             id: value.id,
             name: value.name,
-            songs: value.songs.into_values().map(Into::into).collect(),
+            questions: value
+                .questions
+                .into_iter()
+                .enumerate()
+                .map(|(id, question)| (id as u32, question.into()))
+                .collect(),
+        }
+    }
+}
+
+impl From<QuestionsSequence> for QuestionsSequenceEntity {
+    fn from(value: QuestionsSequence) -> Self {
+        Self {
+            id: value.id,
+            name: value.name,
+            questions: value.questions.into_values().map(Into::into).collect(),
         }
     }
 }
@@ -323,20 +543,20 @@ impl From<TeamColor> for TeamColorEntity {
     }
 }
 
-impl From<(GameEntity, PlaylistEntity)> for GameSession {
-    fn from((game, playlist): (GameEntity, PlaylistEntity)) -> Self {
+impl From<(GameEntity, QuestionsSequenceEntity)> for GameSession {
+    fn from((game, questions_sequence): (GameEntity, QuestionsSequenceEntity)) -> Self {
         Self {
             id: game.id,
             name: game.name,
             created_at: game.created_at,
             updated_at: game.updated_at,
             teams: game.teams.into_iter().map(Into::into).collect(),
-            playlist: playlist.into(),
-            playlist_song_order: game.playlist_song_order,
-            current_song_index: game.current_song_index,
-            current_song_found: game.current_song_found,
-            found_point_fields: Vec::new(),
-            found_bonus_fields: Vec::new(),
+            questions_sequence: questions_sequence.into(),
+            question_order: game.question_order,
+            current_question_index: game.current_question_index,
+            current_question_revealed: game.current_question_revealed,
+            found_answer_ids: Vec::new(),
+            revealed_hint_ids: Vec::new(),
         }
     }
 }
@@ -349,10 +569,10 @@ impl From<GameSession> for GameEntity {
             created_at: value.created_at,
             updated_at: value.updated_at,
             teams: value.teams.into_iter().map(Into::into).collect(),
-            playlist_id: value.playlist.id,
-            playlist_song_order: value.playlist_song_order,
-            current_song_index: value.current_song_index,
-            current_song_found: value.current_song_found,
+            questions_sequence_id: value.questions_sequence.id,
+            question_order: value.question_order,
+            current_question_index: value.current_question_index,
+            current_question_revealed: value.current_question_revealed,
         }
     }
 }

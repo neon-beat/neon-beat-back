@@ -14,7 +14,7 @@ use crate::{
     get,
     path = "/sse/public",
     responses(
-        (status = 200, 
+        (status = 200,
          description = "Public SSE stream with real-time game events",
          content_type = "text/event-stream",
          body = String

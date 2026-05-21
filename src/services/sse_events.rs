@@ -5,12 +5,12 @@ use uuid::Uuid;
 
 use crate::{
     dto::{
-        admin::AnswerValidation,
-        game::{GameSummary, PlaylistOrderError, TeamSummary},
+        admin::QuestionValidation,
+        game::{GameSummary, QuestionOrderError, TeamSummary},
         sse::{
-            AnswerValidationEvent, FieldsFoundEvent, PairingAssignedEvent, PairingRestoredEvent,
-            PairingWaitingEvent, PhaseChangedEvent, ServerEvent, TeamCreatedEvent,
-            TeamDeletedEvent, TeamUpdatedEvent, TestBuzzEvent,
+            AnswerValidationEvent, PairingAssignedEvent, PairingRestoredEvent, PairingWaitingEvent,
+            PhaseChangedEvent, QuestionFoundAnswersEvent, QuestionHintsEvent, ServerEvent,
+            TeamCreatedEvent, TeamDeletedEvent, TeamUpdatedEvent, TestBuzzEvent,
         },
     },
     state::{
@@ -20,8 +20,9 @@ use crate::{
     },
 };
 
-const EVENT_FIELDS_FOUND: &str = "fields_found";
-const EVENT_ANSWER_VALIDATION: &str = "answer_validation";
+const EVENT_QUESTION_FOUND_ANSWERS: &str = "question.found_answers";
+const EVENT_QUESTION_HINTS: &str = "question.hints";
+const EVENT_ANSWER_VALIDATION: &str = "question.validation";
 const EVENT_SCORE_ADJUSTMENT: &str = "score_adjustment";
 const EVENT_PHASE_CHANGED: &str = "phase_changed";
 const EVENT_TEAM_CREATED: &str = "team.created";
@@ -33,24 +34,31 @@ const EVENT_TEST_BUZZ: &str = "test.buzz";
 const EVENT_TEAM_DELETED: &str = "team.deleted";
 const EVENT_GAME_SESSION: &str = "game.session";
 
-/// Broadcast the list of fields found for the current song.
-pub fn broadcast_fields_found(
-    state: &SharedState,
-    song_id: u32,
-    point_fields: &[String],
-    bonus_fields: &[String],
-) {
-    let payload = FieldsFoundEvent {
-        song_id,
-        point_fields: point_fields.to_vec(),
-        bonus_fields: bonus_fields.to_vec(),
+/// Broadcast the list of answers found for the current question.
+pub fn broadcast_question_found_answers(state: &SharedState, question_id: u32, answers_ids: &[u8]) {
+    let payload = QuestionFoundAnswersEvent {
+        question_id,
+        answers_ids: answers_ids.to_vec(),
     };
-    send_public_event(state, EVENT_FIELDS_FOUND, &payload);
+    send_public_event(state, EVENT_QUESTION_FOUND_ANSWERS, &payload);
+}
+
+/// Broadcast the list of hints revealed for the current question.
+pub fn broadcast_question_hints(state: &SharedState, question_id: u32, hints_ids: &[u8]) {
+    let payload = QuestionHintsEvent {
+        question_id,
+        hints_ids: hints_ids.to_vec(),
+    };
+    send_public_event(state, EVENT_QUESTION_HINTS, &payload);
 }
 
 /// Broadcast whether the current answer has been validated or invalidated.
-pub fn broadcast_answer_validation(state: &SharedState, valid: AnswerValidation) {
-    let payload = AnswerValidationEvent { valid };
+pub fn broadcast_answer_validation(
+    state: &SharedState,
+    question_id: u32,
+    valid: QuestionValidation,
+) {
+    let payload = AnswerValidationEvent { question_id, valid };
     send_public_event(state, EVENT_ANSWER_VALIDATION, &payload);
 }
 
@@ -83,7 +91,7 @@ pub fn broadcast_team_updated(state: &SharedState, team: TeamSummary) {
 pub fn broadcast_game_session(
     state: &SharedState,
     session: &GameSession,
-) -> Result<(), PlaylistOrderError> {
+) -> Result<(), QuestionOrderError> {
     let summary: GameSummary = session.clone().try_into()?;
     send_public_event(state, EVENT_GAME_SESSION, &summary);
     Ok(())

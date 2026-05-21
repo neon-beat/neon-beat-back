@@ -9,7 +9,7 @@ use crate::state::game::Team;
 /// High-level phases the game can be in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GamePhase {
-    /// No game is currently running; playlists and teams can be managed.
+    /// No game is currently running; question sequences and teams can be managed.
     Idle,
     /// A game is active and can be in one of the gameplay sub-phases.
     GameRunning(GameRunningPhase),
@@ -20,13 +20,13 @@ pub enum GamePhase {
 /// Fine-grained phase while the game is running.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GameRunningPhase {
-    /// Pre-game configuration: teams, playlist, and assets are set up.
+    /// Pre-game configuration: teams, question sequence, and assets are set up.
     Prep(PrepStatus),
-    /// Actively playing the current song, buzzers enabled.
+    /// Actively playing the current question, buzzers enabled.
     Playing,
     /// Game is paused either manually or because a team buzzed in.
     Paused(PauseKind),
-    /// The current song (or answer) is being revealed.
+    /// The current question answer is being revealed.
     Reveal,
 }
 
@@ -63,8 +63,8 @@ pub enum PauseKind {
 /// Indicates why gameplay transitioned to the final scoreboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FinishReason {
-    /// Playlist reached the end naturally.
-    PlaylistCompleted,
+    /// Questions sequence reached the end naturally.
+    QuestionsSequenceCompleted,
     /// Game master decided to stop the game early.
     ManualStop,
 }
@@ -84,10 +84,10 @@ pub enum GameEvent {
     Pause(PauseKind),
     /// Resume playing after a pause.
     ContinuePlaying,
-    /// Reveal the answer for the current song.
+    /// Reveal the answer for the current question.
     Reveal,
-    /// Move to the next song after a reveal.
-    NextSong,
+    /// Move to the next question after a reveal.
+    NextQuestion,
     /// Transition to the final scoreboard view.
     Finish(FinishReason),
     /// Completely end the game and return to idle.
@@ -349,7 +349,7 @@ impl GameStateMachine {
             (GamePhase::GameRunning(GameRunningPhase::Paused(..)), GameEvent::Reveal) => {
                 GamePhase::GameRunning(GameRunningPhase::Reveal)
             }
-            (GamePhase::GameRunning(GameRunningPhase::Reveal), GameEvent::NextSong) => {
+            (GamePhase::GameRunning(GameRunningPhase::Reveal), GameEvent::NextQuestion) => {
                 GamePhase::GameRunning(GameRunningPhase::Playing)
             }
             (GamePhase::GameRunning(_), GameEvent::Finish(..)) => GamePhase::ShowScores,
@@ -397,12 +397,15 @@ mod tests {
             GamePhase::GameRunning(GameRunningPhase::Reveal)
         );
         assert_eq!(
-            apply(&mut sm, GameEvent::NextSong),
+            apply(&mut sm, GameEvent::NextQuestion),
             GamePhase::GameRunning(GameRunningPhase::Playing)
         );
 
         assert_eq!(
-            apply(&mut sm, GameEvent::Finish(FinishReason::PlaylistCompleted)),
+            apply(
+                &mut sm,
+                GameEvent::Finish(FinishReason::QuestionsSequenceCompleted),
+            ),
             GamePhase::ShowScores
         );
         assert_eq!(apply(&mut sm, GameEvent::EndGame), GamePhase::Idle);

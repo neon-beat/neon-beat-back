@@ -2,8 +2,11 @@
 
 use crate::{
     dto::{
+        common::QuestionSnapshot,
         game::TeamSummary,
-        public::{CurrentSongResponse, GamePhaseResponse, PairingStatusResponse, TeamsResponse},
+        public::{
+            CurrentQuestionResponse, GamePhaseResponse, PairingStatusResponse, TeamsResponse,
+        },
     },
     error::ServiceError,
     state::{
@@ -27,22 +30,24 @@ pub async fn get_teams(state: &SharedState) -> Result<TeamsResponse, ServiceErro
     Ok(TeamsResponse { teams })
 }
 
-/// Return the song being played alongside any fields already discovered.
-pub async fn get_current_song(state: &SharedState) -> Result<CurrentSongResponse, ServiceError> {
+/// Return the question being played alongside any progress already made.
+pub async fn get_current_question(
+    state: &SharedState,
+) -> Result<CurrentQuestionResponse, ServiceError> {
     state
         .with_current_game(|game| {
-            let index = game
-                .current_song_index
-                .ok_or_else(|| ServiceError::NotFound("no active song: playlist is over".into()))?;
-            let (song_id, song) = game
-                .get_song(index)
-                .ok_or_else(|| ServiceError::InvalidState("song not found in playlist".into()))?;
+            let index = game.current_question_index.ok_or_else(|| {
+                ServiceError::NotFound("no active question: sequence is over".into())
+            })?;
+            let (question_id, question) = game.get_question(index).ok_or_else(|| {
+                ServiceError::InvalidState("question not found in sequence".into())
+            })?;
 
-            let song_summary = (song_id, song).into();
-            Ok(CurrentSongResponse {
-                song: song_summary,
-                found_point_fields: game.found_point_fields.clone(),
-                found_bonus_fields: game.found_bonus_fields.clone(),
+            let question = QuestionSnapshot::from_game_question(question_id, &question);
+            Ok(CurrentQuestionResponse {
+                question,
+                answers_ids: game.found_answer_ids.clone(),
+                hints_ids: game.revealed_hint_ids.clone(),
             })
         })
         .await
