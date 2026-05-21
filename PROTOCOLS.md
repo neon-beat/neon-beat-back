@@ -112,7 +112,7 @@ LED patterns change based on game phase:
 ## Server-Sent Events
 
 Two SSE streams provide real-time updates to frontend applications:
-- **`/sse/public`**: 14 events, no authentication
+- **`/sse/public`**: 15 events, no authentication
 - **`/sse/admin`**: 7 events, token authentication, single connection enforced
 
 ### Event Types
@@ -126,8 +126,9 @@ Two SSE streams provide real-time updates to frontend applications:
 | `team.created` | `{team: TeamSummary}` | ✓ | ✓ | New team added |
 | `team.updated` | `{team: TeamSummary}` | ✓ | ✗ | Team name, buzzer, or score changed |
 | `team.deleted` | `{team_id}` | ✓ | ✗ | Team removed |
-| `fields_found` | `{song_id, point_fields[], bonus_fields[]}` | ✓ | ✗ | Fields marked as found |
-| `answer_validation` | `{valid: "correct"\|"incomplete"\|"wrong"}` | ✓ | ✗ | Answer validation result |
+| `question.found_answers` | `{question_id, answers_ids[]}` | ✓ | ✗ | Answers marked as found |
+| `question.hints` | `{question_id, hints_ids[]}` | ✓ | ✗ | Hints revealed for the current question |
+| `question.validation` | `{question_id, valid: "correct"\|"incomplete"\|"wrong"}` | ✓ | ✗ | Answer validation result |
 | `score_adjustment` | `TeamSummary` | ✓ | ✗ | Team score manually adjusted |
 | `pairing.waiting` | `{team_id}` | ✓ | ✓ | Waiting for team to pair buzzer |
 | `pairing.assigned` | `{team_id, buzzer_id}` | ✓ | ✓ | Buzzer successfully paired |
@@ -150,7 +151,7 @@ Two SSE streams provide real-time updates to frontend applications:
 | **Authentication** | Device ID | None | Token on connect |
 | **Clients** | Physical buzzers | Public displays | Admin interfaces |
 | **Connection limit** | Unlimited | Unlimited | Single |
-| **Message types** | 2 client, 3 server | 14 events | 7 events |
+| **Message types** | 2 client, 3 server | 15 events | 7 events |
 
 ---
 
