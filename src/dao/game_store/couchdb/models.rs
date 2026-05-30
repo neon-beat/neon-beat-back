@@ -21,7 +21,6 @@ pub struct AllDocsResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct AllDocsRow {
-    pub id: String,
     #[serde(default)]
     pub doc: Option<Value>,
 }
