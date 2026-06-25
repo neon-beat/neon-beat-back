@@ -119,6 +119,7 @@ pub struct AnswerFoundRequest {
     /// ID of the question containing the answer.
     pub question_id: u32,
     /// ID identifying the answer within the question.
+    #[schema(minimum = 0, maximum = 255, example = 0)]
     pub answer_id: u8,
 }
 
@@ -137,6 +138,7 @@ pub struct QuestionHintRequest {
     /// ID of the question containing the hint.
     pub question_id: u32,
     /// ID identifying the hint within the question.
+    #[schema(minimum = 0, maximum = 255, example = 0)]
     pub hint_id: u8,
 }
 

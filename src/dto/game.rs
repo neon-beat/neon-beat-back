@@ -69,7 +69,13 @@ pub struct TeamInput {
     /// If null is specified, removes the buzzer ID.
     /// If a string is specified, sets the buzzer ID to this string.
     #[serde(default)]
-    #[schema(value_type = Option<String>)]
+    #[schema(
+        value_type = Option<String>,
+        min_length = 12,
+        max_length = 12,
+        pattern = "^[0-9a-f]{12}$",
+        example = "a1b2c3d4e5f6"
+    )]
     pub buzzer_id: Option<Option<String>>,
     /// Initial score for the team (defaults to 0 if omitted).
     #[serde(default)]
@@ -147,6 +153,7 @@ pub struct BlindTestQuestionInput {
     pub guess_duration_ms: usize,
     /// URL of the media file.
     #[validate(url)]
+    #[schema(format = "uri", example = "https://example.com/audio.mp3")]
     pub url: String,
     /// Answers for this question.
     pub answers: Vec<BlindTestAnswerInput>,
@@ -161,6 +168,7 @@ pub struct MultipleChoiceQuestionInput {
     pub prompt: String,
     /// Optional URL of a supporting media file.
     #[validate(url)]
+    #[schema(format = "uri", example = "https://example.com/image.png")]
     pub url: Option<String>,
     /// Possible answers for this question.
     pub answers: Vec<MultipleChoiceAnswerInput>,
@@ -178,6 +186,7 @@ pub struct OpenQuestionInput {
     pub prompt: String,
     /// Optional URL of a supporting media file.
     #[validate(url)]
+    #[schema(format = "uri", example = "https://example.com/image.png")]
     pub url: Option<String>,
     /// Accepted answers for this question.
     pub answers: Vec<OpenAnswerInput>,
@@ -243,6 +252,7 @@ pub struct LegacySongInput {
     pub guess_duration_ms: usize,
     /// URL of the song media file.
     #[validate(url)]
+    #[schema(format = "uri", example = "https://example.com/audio.mp3")]
     pub url: String,
     /// Point fields for this song.
     pub point_fields: Vec<LegacyPointFieldInput>,
