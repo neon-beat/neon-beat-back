@@ -1,4 +1,4 @@
-use mongodb::bson::{Binary, DateTime, Document, doc, spec::BinarySubtype};
+use mongodb::bson::{doc, spec::BinarySubtype, Binary, DateTime, Document};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -12,6 +12,45 @@ use uuid::Uuid;
 //     and enables efficient lookup of a team's document within a game.
 use crate::dao::models::{GameEntity, TeamColorEntity, TeamEntity};
 
+mod uuid_vec_as_binary {
+    use super::uuid_as_binary;
+    use mongodb::bson::Bson;
+    use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
+    use uuid::Uuid;
+
+    pub fn serialize<S>(ids: &[Uuid], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let values: Vec<Bson> = ids
+            .iter()
+            .map(|id| Bson::Binary(uuid_as_binary(*id)))
+            .collect();
+        values.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<Uuid>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let values: Vec<Bson> = Vec::deserialize(deserializer)?;
+        values
+            .into_iter()
+            .map(|value| match value {
+                // Accept binary UUIDs (subtype 4) and legacy UUID binary blobs (any subtype with 16 bytes).
+                Bson::Binary(binary) if binary.bytes.len() == 16 => {
+                    Uuid::from_slice(&binary.bytes).map_err(D::Error::custom)
+                }
+                // Accept string-serialized UUIDs as fallback
+                Bson::String(s) => Uuid::parse_str(&s).map_err(D::Error::custom),
+                other => Err(D::Error::custom(format!(
+                    "expected UUID binary or string, got {other:?}",
+                ))),
+            })
+            .collect()
+    }
+}
+
 /// Representation of a game document stored in MongoDB.
 ///
 /// Indexes:
@@ -20,7 +59,7 @@ use crate::dao::models::{GameEntity, TeamColorEntity, TeamEntity};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MongoGameDocument {
     /// Document `_id` (UUID) — unique primary key.
-    #[serde(rename = "_id")]
+    #[serde(rename = "_id", with = "bson::serde_helpers::uuid_1::AsBinary")]
     id: Uuid,
     /// Game display name. Indexed (non-unique) as `game_name_idx`.
     name: String,
@@ -30,8 +69,10 @@ pub struct MongoGameDocument {
     updated_at: DateTime,
     /// List of team ids in display order. Individual team details live in the `teams`
     /// collection as `MongoTeamDocument` documents.
+    #[serde(with = "uuid_vec_as_binary")]
     pub teams: Vec<Uuid>,
     /// Referenced questions sequence id.
+    #[serde(with = "bson::serde_helpers::uuid_1::AsBinary")]
     questions_sequence_id: Uuid,
     /// Ordered list of question indices referencing the sequence.
     question_order: Vec<u32>,
@@ -95,8 +136,10 @@ pub fn doc_id(id: Uuid) -> Document {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MongoTeamDocument {
     /// Owning game UUID. Indexed as part of the compound `team_game_idx`.
+    #[serde(with = "bson::serde_helpers::uuid_1::AsBinary")]
     pub game_id: Uuid,
     /// Team UUID within the game. Indexed as part of the compound `team_game_idx`.
+    #[serde(with = "bson::serde_helpers::uuid_1::AsBinary")]
     pub team_id: Uuid,
     /// Team display name.
     pub name: String,

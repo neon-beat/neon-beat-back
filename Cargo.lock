@@ -1355,6 +1355,7 @@ dependencies = [
  "async-stream",
  "axum",
  "axum-valid",
+ "bson",
  "dashmap",
  "futures",
  "indexmap 2.12.0",
